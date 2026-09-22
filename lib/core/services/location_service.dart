@@ -3,7 +3,10 @@ import 'package:geolocator/geolocator.dart';
 class LocationService {
   Future<void> ensurePermission() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
-      throw const LocationServiceDisabledException();
+      await Geolocator.openLocationSettings();
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw const LocationServiceDisabledException();
+      }
     }
 
     var permission = await Geolocator.checkPermission();
@@ -11,8 +14,12 @@ class LocationService {
       permission = await Geolocator.requestPermission();
     }
 
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.deniedForever) {
+      await Geolocator.openAppSettings();
+      throw const PermissionDeniedException('Location permission permanently denied');
+    }
+
+    if (permission == LocationPermission.denied) {
       throw const PermissionDeniedException('Location permission denied');
     }
   }
