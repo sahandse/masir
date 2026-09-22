@@ -27,6 +27,8 @@ class _MapPageState extends State<MapPage> {
   PlaceResult? _destination;
   RouteResult? _route;
   LatLng? _gpsPoint;
+  double _speedKmh = 0;
+  DateTime? _lastRerouteAt;
 
   bool _routingNow = false;
   bool _routeConfirmed = false;
@@ -230,15 +232,52 @@ class _MapPageState extends State<MapPage> {
       _positionSubscription = _location.positionStream().listen((position) {
         if (!mounted || !_liveNavigation) return;
         final point = LatLng(position.latitude, position.longitude);
-        setState(() => _gpsPoint = point);
+        setState(() {
+          _gpsPoint = point;
+          _speedKmh = position.speed.isFinite && position.speed > 0 ? position.speed * 3.6 : 0;
+        });
         _mapController.move(point, 17);
         _advanceLiveManeuver(point);
+        unawaited(_maybeReroute(point));
       });
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('شروع مسیریابی زنده نیاز به GPS و دسترسی موقعیت دارد.')),
       );
+    }
+  }
+
+  Future<void> _maybeReroute(LatLng current) async {
+    final route = _route;
+    final destination = _destination;
+    if (!_liveNavigation || route == null || destination == null || route.points.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_lastRerouteAt != null && now.difference(_lastRerouteAt!) < const Duration(seconds: 20)) {
+      return;
+    }
+
+    var nearest = double.infinity;
+    final step = route.points.length > 500 ? 5 : 1;
+    for (var i = 0; i < route.points.length; i += step) {
+      final meters = _distance(current, route.points[i]);
+      if (meters < nearest) nearest = meters;
+      if (nearest < 45) return;
+    }
+
+    if (nearest < 80) return;
+    _lastRerouteAt = now;
+
+    try {
+      final newRoute = await _routing.route(current, destination.position);
+      if (!mounted || !_liveNavigation) return;
+      setState(() {
+        _route = newRoute;
+        _maneuverIndex = 0;
+      });
+    } catch (_) {
+      // Keep the last valid route; never fabricate a replacement.
     }
   }
 
@@ -381,6 +420,7 @@ class _MapPageState extends State<MapPage> {
                 index: _maneuverIndex,
                 count: route.maneuvers.length,
                 live: _liveNavigation,
+                speedKmh: _speedKmh,
                 onClose: _stopNavigation,
               ),
             ),
@@ -639,6 +679,7 @@ class _NavigationBanner extends StatelessWidget {
     required this.index,
     required this.count,
     required this.live,
+    required this.speedKmh,
     required this.onClose,
   });
 
@@ -646,6 +687,7 @@ class _NavigationBanner extends StatelessWidget {
   final int index;
   final int count;
   final bool live;
+  final double speedKmh;
   final VoidCallback onClose;
 
   @override
