@@ -50,6 +50,7 @@ class _MapPageState extends State<MapPage> {
   int? _maxSpeedKmh;
   bool _speedCameraNearby = false;
   bool _voiceEnabled = true;
+  bool _directionUp = true;
   NavigationPreferences _navPrefs = const NavigationPreferences();
   DateTime? _lastRerouteAt;
   DateTime? _lastRoadInfoAt;
@@ -353,10 +354,13 @@ class _MapPageState extends State<MapPage> {
                 ? position.speed * 3.6
                 : 0;
           });
-          if (position.heading.isFinite &&
+          if (_directionUp &&
+              position.heading.isFinite &&
               position.heading >= 0 &&
               position.speed > 1.5) {
             _mapController.rotate(-position.heading);
+          } else if (!_directionUp) {
+            _mapController.rotate(0);
           }
           final zoom = _navPrefs.autoZoom
               ? (position.speed * 3.6 >= 80
@@ -1152,6 +1156,15 @@ class _MapPageState extends State<MapPage> {
                   ),
                   const SizedBox(height: 8),
                   FloatingActionButton.small(
+                    heroTag: 'orientation',
+                    onPressed: () {
+                      setState(() => _directionUp = !_directionUp);
+                      if (!_directionUp) _mapController.rotate(0);
+                    },
+                    child: Icon(_directionUp ? Icons.navigation_rounded : Icons.explore_outlined),
+                  ),
+                  const SizedBox(height: 8),
+                  FloatingActionButton.small(
                     heroTag: 'overview',
                     onPressed: _showRouteOverview,
                     child: const Icon(Icons.alt_route_rounded),
@@ -1437,6 +1450,13 @@ class _NavigationBanner extends StatelessWidget {
   final double remainingSeconds;
   final VoidCallback onClose;
 
+  String _arrivalTime(double seconds) {
+    final arrival = DateTime.now().add(Duration(seconds: seconds.round()));
+    final hour = arrival.hour.toString().padLeft(2, '0');
+    final minute = arrival.minute.toString().padLeft(2, '0');
+    return 'رسیدن $hour:$minute';
+  }
+
   String _formatEta(double seconds) {
     final minutes = (seconds / 60).round();
     if (minutes < 60) return '$minutes دقیقه';
@@ -1484,7 +1504,13 @@ class _NavigationBanner extends StatelessWidget {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: count <= 1 ? 1 : (index + 1) / count,
+                    minHeight: 4,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 4,
@@ -1504,6 +1530,7 @@ class _NavigationBanner extends StatelessWidget {
                         ),
                       Text('${remainingKilometers.toStringAsFixed(1)} km', style: const TextStyle(fontWeight: FontWeight.w800)),
                       Text(_formatEta(remainingSeconds), style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(_arrivalTime(remainingSeconds), style: const TextStyle(fontWeight: FontWeight.w800)),
                       if (speedCameraNearby) const Icon(Icons.photo_camera_outlined, size: 18),
                     ],
                   ),
