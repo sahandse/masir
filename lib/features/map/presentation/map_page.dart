@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
+import 'package:masir/core/services/navigation_preferences_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
@@ -25,6 +26,7 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> {
   final _mapController = MapController();
   final _location = LocationService();
+  final _navPrefsService = NavigationPreferencesService();
   final _routing = ValhallaService();
   final _osm = OsmDataService();
   final _reports = ReportService();
@@ -43,6 +45,7 @@ class _MapPageState extends State<MapPage> {
   int? _maxSpeedKmh;
   bool _speedCameraNearby = false;
   bool _voiceEnabled = true;
+  NavigationPreferences _navPrefs = const NavigationPreferences();
   DateTime? _lastRerouteAt;
   DateTime? _lastRoadInfoAt;
 
@@ -54,6 +57,24 @@ class _MapPageState extends State<MapPage> {
   int _maneuverIndex = 0;
   _PickTarget? _pickTarget;
   StreamSubscription<dynamic>? _positionSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNavigationPreferences();
+  }
+
+  Future<void> _loadNavigationPreferences() async {
+    final value = await _navPrefsService.load();
+    if (!mounted) return;
+    setState(() => _navPrefs = value);
+  }
+
+  Future<void> _setNavigationPreferences(NavigationPreferences value) async {
+    await _navPrefsService.save(value);
+    if (!mounted) return;
+    setState(() => _navPrefs = value);
+  }
 
   @override
   void dispose() {
@@ -151,7 +172,13 @@ class _MapPageState extends State<MapPage> {
     setState(() => _routingNow = true);
 
     try {
-      final options = await _routing.routeAlternatives(_origin!.position, _destination!.position);
+      final options = await _routing.routeAlternatives(
+        _origin!.position,
+        _destination!.position,
+        useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
+        useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
+        useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
+      );
       final result = options.first;
       await _saved.addHistory(_destination!);
       if (!mounted) return;
@@ -240,7 +267,13 @@ class _MapPageState extends State<MapPage> {
 
       RouteResult liveRoute;
       try {
-        liveRoute = await _routing.route(current, destination.position);
+        liveRoute = await _routing.route(
+          current,
+          destination.position,
+          useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
+          useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
+          useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
+        );
       } catch (_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -292,7 +325,14 @@ class _MapPageState extends State<MapPage> {
               position.speed > 1.5) {
             _mapController.rotate(-position.heading);
           }
-          _mapController.move(point, 17);
+          final zoom = _navPrefs.autoZoom
+              ? (position.speed * 3.6 >= 80
+                  ? 15.4
+                  : position.speed * 3.6 >= 40
+                      ? 16.1
+                      : 17.0)
+              : 17.0;
+          _mapController.move(point, zoom);
           _advanceLiveManeuver(point);
           unawaited(_maybeReroute(point));
           unawaited(_refreshRoadInfo(point));
@@ -347,7 +387,13 @@ class _MapPageState extends State<MapPage> {
     _lastRerouteAt = now;
 
     try {
-      final newRoute = await _routing.route(current, destination.position);
+      final newRoute = await _routing.route(
+        current,
+        destination.position,
+        useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
+        useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
+        useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
+      );
       if (!mounted || !_liveNavigation) return;
       setState(() {
         _route = newRoute;
@@ -507,6 +553,89 @@ class _MapPageState extends State<MapPage> {
     });
   }
 
+
+  void _recenterOnDriver() {
+    final point = _gpsPoint;
+    if (point == null) return;
+    _mapController.move(point, _speedKmh >= 80 ? 15.4 : _speedKmh >= 40 ? 16.1 : 17.0);
+  }
+
+  void _showRouteOverview() {
+    final route = _route;
+    if (route == null || route.points.isEmpty) return;
+    _mapController.rotate(0);
+    _mapController.fitCamera(
+      CameraFit.coordinates(
+        coordinates: route.points,
+        padding: const EdgeInsets.fromLTRB(34, 140, 34, 140),
+      ),
+    );
+  }
+
+  void _showNavigationPreferences() {
+    var draft = _navPrefs;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
+            children: [
+              const ListTile(
+                title: Text('تنظیمات مسیر'),
+                subtitle: Text('همه تنظیمات فقط روی همین دستگاه ذخیره می‌شوند'),
+              ),
+              SwitchListTile(
+                value: draft.avoidTolls,
+                onChanged: (value) => setSheetState(() => draft = draft.copyWith(avoidTolls: value)),
+                title: const Text('پرهیز از عوارضی'),
+                secondary: const Icon(Icons.toll_outlined),
+              ),
+              SwitchListTile(
+                value: draft.avoidHighways,
+                onChanged: (value) => setSheetState(() => draft = draft.copyWith(avoidHighways: value)),
+                title: const Text('پرهیز از بزرگراه'),
+                secondary: const Icon(Icons.add_road_outlined),
+              ),
+              SwitchListTile(
+                value: draft.avoidFerries,
+                onChanged: (value) => setSheetState(() => draft = draft.copyWith(avoidFerries: value)),
+                title: const Text('پرهیز از فِری'),
+                secondary: const Icon(Icons.directions_boat_outlined),
+              ),
+              const Divider(),
+              SwitchListTile(
+                value: draft.autoZoom,
+                onChanged: (value) => setSheetState(() => draft = draft.copyWith(autoZoom: value)),
+                title: const Text('زوم خودکار هنگام رانندگی'),
+                secondary: const Icon(Icons.zoom_in_map_outlined),
+              ),
+              SwitchListTile(
+                value: draft.speedWarning,
+                onChanged: (value) => setSheetState(() => draft = draft.copyWith(speedWarning: value)),
+                title: const Text('هشدار سرعت'),
+                secondary: const Icon(Icons.speed_rounded),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: () async {
+                  Navigator.pop(sheetContext);
+                  await _setNavigationPreferences(draft);
+                  if (_origin != null && _destination != null && _route != null) {
+                    unawaited(_buildRoute());
+                  }
+                },
+                child: const Text('ذخیره تنظیمات'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -517,6 +646,15 @@ class _MapPageState extends State<MapPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.route_outlined),
+                title: const Text('تنظیمات مسیر'),
+                subtitle: const Text('عوارضی، بزرگراه، فری، زوم و هشدار سرعت'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showNavigationPreferences();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.local_gas_station_outlined),
                 title: const Text('مکان‌های اطراف'),
@@ -775,6 +913,7 @@ class _MapPageState extends State<MapPage> {
                 speedKmh: _speedKmh,
                 maxSpeedKmh: _maxSpeedKmh,
                 speedCameraNearby: _speedCameraNearby,
+                speedWarning: _navPrefs.speedWarning,
                 onClose: _stopNavigation,
               ),
             ),
@@ -818,6 +957,26 @@ class _MapPageState extends State<MapPage> {
                 heroTag: 'tools',
                 onPressed: _showToolsSheet,
                 child: const Icon(Icons.tune_rounded),
+              ),
+            ),
+          if (_liveNavigation)
+            Positioned(
+              right: 12,
+              top: MediaQuery.paddingOf(context).top + 150,
+              child: Column(
+                children: [
+                  FloatingActionButton.small(
+                    heroTag: 'recenter',
+                    onPressed: _recenterOnDriver,
+                    child: const Icon(Icons.my_location_rounded),
+                  ),
+                  const SizedBox(height: 8),
+                  FloatingActionButton.small(
+                    heroTag: 'overview',
+                    onPressed: _showRouteOverview,
+                    child: const Icon(Icons.alt_route_rounded),
+                  ),
+                ],
               ),
             ),
           if (_liveNavigation)
@@ -1080,6 +1239,7 @@ class _NavigationBanner extends StatelessWidget {
     required this.speedKmh,
     required this.maxSpeedKmh,
     required this.speedCameraNearby,
+    required this.speedWarning,
     required this.onClose,
   });
 
@@ -1090,6 +1250,7 @@ class _NavigationBanner extends StatelessWidget {
   final double speedKmh;
   final int? maxSpeedKmh;
   final bool speedCameraNearby;
+  final bool speedWarning;
   final VoidCallback onClose;
 
   @override
@@ -1131,8 +1292,27 @@ class _NavigationBanner extends StatelessWidget {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 4),
-                  Text('مرحله ${index + 1} از $count • ${maneuver.kilometers.toStringAsFixed(1)} کیلومتر'),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text('مرحله ${index + 1} از $count • ${maneuver.kilometers.toStringAsFixed(1)} کیلومتر'),
+                      if (live)
+                        Text('${speedKmh.round()} km/h', style: TextStyle(fontWeight: FontWeight.w900, color: speedWarning && maxSpeedKmh != null && speedKmh > maxSpeedKmh! ? Theme.of(context).colorScheme.error : null)),
+                      if (live)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(maxSpeedKmh == null ? 'حد —' : 'حد $maxSpeedKmh', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                      if (speedCameraNearby) const Icon(Icons.photo_camera_outlined, size: 18),
+                    ],
+                  ),
                 ],
               ),
             ),
