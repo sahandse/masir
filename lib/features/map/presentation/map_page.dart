@@ -151,6 +151,7 @@ class _MapPageState extends State<MapPage> {
     try {
       final options = await _routing.routeAlternatives(_origin!.position, _destination!.position);
       final result = options.first;
+      await _saved.addHistory(_destination!);
       if (!mounted) return;
 
       setState(() {
@@ -366,6 +367,78 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+
+  Future<void> _saveDestinationAsHome() async {
+    final place = _destination;
+    if (place == null) return;
+    await _saved.saveHome(place);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('خانه ذخیره شد.')),
+    );
+  }
+
+  Future<void> _saveDestinationAsWork() async {
+    final place = _destination;
+    if (place == null) return;
+    await _saved.saveWork(place);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('محل کار ذخیره شد.')),
+    );
+  }
+
+  Future<void> _showSavedPlaces() async {
+    final home = await _saved.getHome();
+    final work = await _saved.getWork();
+    final favorites = await _saved.getFavorites();
+    final history = await _saved.getHistory();
+    if (!mounted) return;
+
+    final items = <PlaceResult>[
+      if (home != null) home,
+      if (work != null) work,
+      ...favorites,
+      ...history,
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: items.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: Text('هنوز مکانی ذخیره نشده است.')),
+              )
+            : ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final place = items[index];
+                  return ListTile(
+                    leading: const Icon(Icons.place_outlined),
+                    title: Text(place.title),
+                    subtitle: place.subtitle.isEmpty ? null : Text(place.subtitle),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      setState(() {
+                        _destination = place;
+                        _route = null;
+                        _alternatives = const [];
+                        _routeConfirmed = false;
+                      });
+                      _mapController.move(place.position, 15);
+                    },
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
   Future<void> _saveDestinationAsFavorite() async {
     final place = _destination;
     if (place == null) return;
@@ -407,11 +480,35 @@ class _MapPageState extends State<MapPage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.bookmarks_outlined),
+                title: const Text('ذخیره‌ها و تاریخچه'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showSavedPlaces();
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.star_outline_rounded),
                 title: const Text('ذخیره مقصد'),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _saveDestinationAsFavorite();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.home_outlined),
+                title: const Text('ذخیره مقصد به‌عنوان خانه'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _saveDestinationAsHome();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.work_outline_rounded),
+                title: const Text('ذخیره مقصد به‌عنوان محل کار'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _saveDestinationAsWork();
                 },
               ),
               SwitchListTile(
@@ -577,6 +674,12 @@ class _MapPageState extends State<MapPage> {
               ),
             ],
           ),
+          if (_liveNavigation && (DateTime.now().hour >= 19 || DateTime.now().hour < 6))
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(color: Colors.black26),
+              ),
+            ),
           if (!navigating)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 12,
@@ -959,6 +1062,19 @@ class _NavigationBanner extends StatelessWidget {
                     maneuver.instruction,
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, height: 1.35),
                   ),
+                  if (maneuver.lanes.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 4,
+                      children: [
+                        for (final lane in maneuver.lanes.take(5))
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(lane, style: const TextStyle(fontSize: 11)),
+                          ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text('مرحله ${index + 1} از $count • ${maneuver.kilometers.toStringAsFixed(1)} کیلومتر'),
                 ],
