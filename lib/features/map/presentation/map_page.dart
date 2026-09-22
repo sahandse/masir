@@ -577,6 +577,25 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _selectRouteFromMap(LatLng point) {
+    if (_alternatives.length < 2 || _routeConfirmed || _liveNavigation) return;
+    var bestIndex = -1;
+    var bestMeters = double.infinity;
+    for (var routeIndex = 0; routeIndex < _alternatives.length; routeIndex++) {
+      final points = _alternatives[routeIndex].points;
+      final step = points.length > 500 ? 4 : 1;
+      for (var i = 0; i < points.length; i += step) {
+        final meters = _distance(point, points[i]);
+        if (meters < bestMeters) {
+          bestMeters = meters;
+          bestIndex = routeIndex;
+        }
+      }
+    }
+    if (bestIndex >= 0 && bestMeters < 120) {
+      _selectAlternative(bestIndex);
+    }
+  }
   void _selectAlternative(int index) {
     if (index < 0 || index >= _alternatives.length) return;
     setState(() {
@@ -944,13 +963,27 @@ class _MapPageState extends State<MapPage> {
               initialCenter: const LatLng(20, 0),
               initialZoom: 2.5,
               onLongPress: (_, point) => _setMapPoint(point),
+              onTap: (_, point) => _selectRouteFromMap(point),
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'ir.sahand.masir',
               ),
-              if (route != null)
+              if (_alternatives.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    for (var i = 0; i < _alternatives.length; i++)
+                      Polyline(
+                        points: _alternatives[i].points,
+                        strokeWidth: i == _routeIndex ? 7 : 4,
+                        color: i == _routeIndex
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.outline.withValues(alpha: 0.55),
+                      ),
+                  ],
+                )
+              else if (route != null)
                 PolylineLayer(
                   polylines: [
                     Polyline(
