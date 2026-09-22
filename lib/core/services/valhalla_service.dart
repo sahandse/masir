@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -69,13 +67,18 @@ class ValhallaService {
       },
       'directions_options': {
         'units': 'kilometers',
-        'language': 'fa-IR',
+        'language': 'en-US',
       },
     };
 
-    final response = await _dio.get<Map<String, dynamic>>(
+    final response = await _dio.post<Map<String, dynamic>>(
       '$_baseUrl/route',
-      queryParameters: {'json': jsonEncode(body)},
+      data: body,
+      options: Options(
+        contentType: Headers.jsonContentType,
+        receiveTimeout: const Duration(seconds: 20),
+        sendTimeout: const Duration(seconds: 20),
+      ),
     );
 
     final trip = response.data!['trip'] as Map<String, dynamic>;
