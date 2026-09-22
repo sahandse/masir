@@ -48,6 +48,7 @@ class ValhallaService {
     LatLng to, {
     double useHighways = 1.0,
     double useTolls = 1.0,
+    double useFerries = 0.5,
   }) async {
     if (!isConfigured) {
       throw StateError('VALHALLA_BASE_URL is not configured');
@@ -63,6 +64,7 @@ class ValhallaService {
         'auto': {
           'use_highways': useHighways,
           'use_tolls': useTolls,
+          'use_ferry': useFerries,
         },
       },
       'directions_options': {
@@ -76,6 +78,7 @@ class ValhallaService {
       data: body,
       options: Options(
         contentType: Headers.jsonContentType,
+        headers: const {'X-Client-Id': 'ir.sahand.masir'},
         receiveTimeout: const Duration(seconds: 20),
         sendTimeout: const Duration(seconds: 20),
       ),
@@ -113,11 +116,17 @@ class ValhallaService {
     );
   }
 
-  Future<List<RouteResult>> routeAlternatives(LatLng from, LatLng to) async {
+  Future<List<RouteResult>> routeAlternatives(
+    LatLng from,
+    LatLng to, {
+    double useHighways = 1.0,
+    double useTolls = 1.0,
+    double useFerries = 0.5,
+  }) async {
     final results = await Future.wait([
-      route(from, to),
-      route(from, to, useHighways: 0.35, useTolls: 1.0),
-      route(from, to, useHighways: 0.75, useTolls: 0.0),
+      route(from, to, useHighways: useHighways, useTolls: useTolls, useFerries: useFerries),
+      route(from, to, useHighways: useHighways < 0.5 ? useHighways : 0.35, useTolls: useTolls, useFerries: useFerries),
+      route(from, to, useHighways: useHighways, useTolls: useTolls < 0.5 ? useTolls : 0.0, useFerries: useFerries),
     ]);
 
     final unique = <RouteResult>[];
