@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_preferences_service.dart';
+import 'package:masir/core/services/navigation_session_service.dart';
+import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
@@ -27,6 +29,8 @@ class _MapPageState extends State<MapPage> {
   final _mapController = MapController();
   final _location = LocationService();
   final _navPrefsService = NavigationPreferencesService();
+  final _session = NavigationSessionService();
+  final _persian = PersianGuidanceService();
   final _routing = ValhallaService();
   final _osm = OsmDataService();
   final _reports = ReportService();
@@ -36,6 +40,7 @@ class _MapPageState extends State<MapPage> {
 
   PlaceResult? _origin;
   PlaceResult? _destination;
+  final List<PlaceResult> _viaPoints = [];
   RouteResult? _route;
   List<RouteResult> _alternatives = const [];
   int _routeIndex = 0;
@@ -62,8 +67,33 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _loadNavigationPreferences();
+    _restoreNavigationSession();
   }
 
+  Future<void> _restoreNavigationSession() async {
+    final saved = await _session.load();
+    if (!mounted || saved == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('مسیر قبلی ذخیره شده است.'),
+          action: SnackBarAction(
+            label: 'ادامه',
+            onPressed: () {
+              setState(() {
+                _destination = saved.destination;
+                _viaPoints
+                  ..clear()
+                  ..addAll(saved.viaPoints);
+              });
+              _useGpsAsOrigin().then((_) => _buildRoute());
+            },
+          ),
+        ),
+      );
+    });
+  }
   Future<void> _loadNavigationPreferences() async {
     final value = await _navPrefsService.load();
     if (!mounted) return;
@@ -175,6 +205,7 @@ class _MapPageState extends State<MapPage> {
       final options = await _routing.routeAlternatives(
         _origin!.position,
         _destination!.position,
+        viaPoints: _viaPoints.map((e) => e.position).toList(),
         useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
         useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
         useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
@@ -270,6 +301,7 @@ class _MapPageState extends State<MapPage> {
         liveRoute = await _routing.route(
           current,
           destination.position,
+          viaPoints: _viaPoints.map((e) => e.position).toList(),
           useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
           useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
           useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
@@ -305,8 +337,9 @@ class _MapPageState extends State<MapPage> {
 
       _mapController.move(current, 17);
 
+      await _session.save(destination: destination, viaPoints: _viaPoints);
       if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
-        unawaited(_voice.speak(liveRoute.maneuvers.first.instruction));
+        unawaited(_voice.speak(_persian.instruction(liveRoute.maneuvers.first)));
       }
 
       await _positionSubscription?.cancel();
@@ -390,6 +423,7 @@ class _MapPageState extends State<MapPage> {
       final newRoute = await _routing.route(
         current,
         destination.position,
+        viaPoints: _viaPoints.map((e) => e.position).toList(),
         useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
         useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
         useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
@@ -416,7 +450,7 @@ class _MapPageState extends State<MapPage> {
     if (meters < 35) {
       setState(() => _maneuverIndex++);
       if (_voiceEnabled && _maneuverIndex < route.maneuvers.length) {
-        unawaited(_voice.speak(route.maneuvers[_maneuverIndex].instruction));
+        unawaited(_voice.speak(_persian.instruction(route.maneuvers[_maneuverIndex])));
       }
     }
   }
@@ -636,6 +670,103 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _addViaPoint() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      builder: (_) => SearchSheet(
+        onSelected: (place) {
+          setState(() {
+            _viaPoints.add(place);
+            _route = null;
+            _alternatives = const [];
+            _routeConfirmed = false;
+          });
+        },
+      ),
+    );
+  }
+
+  void _manageViaPoints() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('توقف‌های بین راه'),
+                subtitle: Text('ترتیب توقف‌ها را تغییر بده یا حذف کن'),
+              ),
+              if (_viaPoints.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('توقفی اضافه نشده است.'),
+                ),
+              for (var i = 0; i < _viaPoints.length; i++)
+                ListTile(
+                  leading: CircleAvatar(child: Text('${i + 1}')),
+                  title: Text(_viaPoints[i].title),
+                  trailing: Wrap(
+                    children: [
+                      IconButton(
+                        onPressed: i > 0 ? () {
+                          setState(() {
+                            final item = _viaPoints.removeAt(i);
+                            _viaPoints.insert(i - 1, item);
+                            _route = null;
+                            _routeConfirmed = false;
+                          });
+                          setSheetState(() {});
+                        } : null,
+                        icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                      ),
+                      IconButton(
+                        onPressed: i < _viaPoints.length - 1 ? () {
+                          setState(() {
+                            final item = _viaPoints.removeAt(i);
+                            _viaPoints.insert(i + 1, item);
+                            _route = null;
+                            _routeConfirmed = false;
+                          });
+                          setSheetState(() {});
+                        } : null,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _viaPoints.removeAt(i);
+                            _route = null;
+                            _routeConfirmed = false;
+                          });
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _addViaPoint();
+                  },
+                  icon: const Icon(Icons.add_location_alt_outlined),
+                  label: const Text('افزودن توقف'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -646,6 +777,15 @@ class _MapPageState extends State<MapPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.add_location_alt_outlined),
+                title: const Text('توقف‌های بین راه'),
+                subtitle: Text(_viaPoints.isEmpty ? 'بدون توقف' : '${_viaPoints.length} توقف'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _manageViaPoints();
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.route_outlined),
                 title: const Text('تنظیمات مسیر'),
@@ -772,6 +912,7 @@ class _MapPageState extends State<MapPage> {
   void _stopNavigation() {
     _positionSubscription?.cancel();
     _positionSubscription = null;
+    _session.clear();
     setState(() {
       _simulation = false;
       _liveNavigation = false;
