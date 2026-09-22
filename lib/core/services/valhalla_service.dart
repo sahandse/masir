@@ -135,14 +135,15 @@ class ValhallaService {
   Future<List<RouteResult>> routeAlternatives(
     LatLng from,
     LatLng to, {
+    List<LatLng> viaPoints = const [],
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
   }) async {
     final results = await Future.wait([
-      route(from, to, useHighways: useHighways, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, useHighways: useHighways < 0.5 ? useHighways : 0.35, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, useHighways: useHighways, useTolls: useTolls < 0.5 ? useTolls : 0.0, useFerries: useFerries),
+      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls, useFerries: useFerries),
+      route(from, to, viaPoints: viaPoints, useHighways: useHighways < 0.5 ? useHighways : 0.35, useTolls: useTolls, useFerries: useFerries),
+      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls < 0.5 ? useTolls : 0.0, useFerries: useFerries),
     ]);
 
     final unique = <RouteResult>[];
