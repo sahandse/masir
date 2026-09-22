@@ -46,6 +46,7 @@ class ValhallaService {
   Future<RouteResult> route(
     LatLng from,
     LatLng to, {
+    List<LatLng> viaPoints = const [],
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
@@ -57,6 +58,7 @@ class ValhallaService {
     final body = {
       'locations': [
         {'lat': from.latitude, 'lon': from.longitude},
+        for (final via in viaPoints) {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
         {'lat': to.latitude, 'lon': to.longitude},
       ],
       'costing': 'auto',
@@ -87,29 +89,43 @@ class ValhallaService {
     final trip = response.data!['trip'] as Map<String, dynamic>;
     final summary = trip['summary'] as Map<String, dynamic>;
     final legs = trip['legs'] as List<dynamic>;
-    final firstLeg = legs.first as Map<String, dynamic>;
-    final shape = firstLeg['shape'] as String;
-    final rawManeuvers = (firstLeg['maneuvers'] as List<dynamic>?) ?? const [];
+    final points = <LatLng>[];
+    final maneuvers = <RouteManeuver>[];
+    var pointOffset = 0;
 
-    final maneuvers = rawManeuvers.map((raw) {
-      final item = raw as Map<String, dynamic>;
-      return RouteManeuver(
-        instruction: (item['instruction'] as String?)?.trim().isNotEmpty == true
-            ? item['instruction'] as String
-            : 'ادامه مسیر',
-        kilometers: (item['length'] as num?)?.toDouble() ?? 0,
-        seconds: (item['time'] as num?)?.toDouble() ?? 0,
-        beginShapeIndex: (item['begin_shape_index'] as num?)?.toInt() ?? 0,
-        endShapeIndex: (item['end_shape_index'] as num?)?.toInt() ?? 0,
-        type: (item['type'] as num?)?.toInt() ?? 0,
-        lanes: ((item['lanes'] as List<dynamic>?) ?? const [])
-            .map((e) => e.toString())
-            .toList(growable: false),
-      );
-    }).toList(growable: false);
+    for (var legIndex = 0; legIndex < legs.length; legIndex++) {
+      final leg = legs[legIndex] as Map<String, dynamic>;
+      final legPoints = _decodePolyline6(leg['shape'] as String);
+      if (legIndex > 0 && legPoints.isNotEmpty) {
+        legPoints.removeAt(0);
+      }
+      final rawManeuvers = (leg['maneuvers'] as List<dynamic>?) ?? const [];
+
+      for (final raw in rawManeuvers) {
+        final item = raw as Map<String, dynamic>;
+        maneuvers.add(
+          RouteManeuver(
+            instruction: (item['instruction'] as String?)?.trim().isNotEmpty == true
+                ? item['instruction'] as String
+                : 'ادامه مسیر',
+            kilometers: (item['length'] as num?)?.toDouble() ?? 0,
+            seconds: (item['time'] as num?)?.toDouble() ?? 0,
+            beginShapeIndex: pointOffset + ((item['begin_shape_index'] as num?)?.toInt() ?? 0),
+            endShapeIndex: pointOffset + ((item['end_shape_index'] as num?)?.toInt() ?? 0),
+            type: (item['type'] as num?)?.toInt() ?? 0,
+            lanes: ((item['lanes'] as List<dynamic>?) ?? const [])
+                .map((e) => e.toString())
+                .toList(growable: false),
+          ),
+        );
+      }
+
+      points.addAll(legPoints);
+      pointOffset = points.length - 1;
+    }
 
     return RouteResult(
-      points: _decodePolyline6(shape),
+      points: points,
       seconds: (summary['time'] as num).toDouble(),
       kilometers: (summary['length'] as num).toDouble(),
       maneuvers: maneuvers,
