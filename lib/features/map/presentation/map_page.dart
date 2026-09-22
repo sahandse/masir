@@ -46,6 +46,7 @@ class _MapPageState extends State<MapPage> {
   DateTime? _lastRoadInfoAt;
 
   bool _routingNow = false;
+  bool _startingNavigation = false;
   bool _routeConfirmed = false;
   bool _liveNavigation = false;
   bool _simulation = false;
@@ -228,12 +229,27 @@ class _MapPageState extends State<MapPage> {
 
   Future<void> _startLiveNavigation() async {
     final destination = _destination;
-    if (destination == null) return;
+    if (destination == null || _startingNavigation) return;
+
+    setState(() => _startingNavigation = true);
 
     try {
       final position = await _location.currentPosition();
       final current = LatLng(position.latitude, position.longitude);
-      final liveRoute = await _routing.route(current, destination.position);
+
+      RouteResult liveRoute;
+      try {
+        liveRoute = await _routing.route(current, destination.position);
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('GPS آماده است، اما دریافت مسیر رانندگی از سرور انجام نشد.'),
+          ),
+        );
+        return;
+      }
+
       if (!mounted) return;
 
       setState(() {
@@ -248,33 +264,63 @@ class _MapPageState extends State<MapPage> {
         _liveNavigation = true;
         _simulation = false;
         _maneuverIndex = 0;
+        _speedKmh = position.speed.isFinite && position.speed > 0
+            ? position.speed * 3.6
+            : 0;
       });
+
+      _mapController.move(current, 17);
 
       if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
         unawaited(_voice.speak(liveRoute.maneuvers.first.instruction));
       }
 
       await _positionSubscription?.cancel();
-      _positionSubscription = _location.positionStream().listen((position) {
-        if (!mounted || !_liveNavigation) return;
-        final point = LatLng(position.latitude, position.longitude);
-        setState(() {
-          _gpsPoint = point;
-          _speedKmh = position.speed.isFinite && position.speed > 0 ? position.speed * 3.6 : 0;
-        });
-        if (position.heading.isFinite && position.heading >= 0) {
-          _mapController.rotate(-position.heading);
-        }
-        _mapController.move(point, 17);
-        _advanceLiveManeuver(point);
-        unawaited(_maybeReroute(point));
-        unawaited(_refreshRoadInfo(point));
-      });
+      _positionSubscription = _location.positionStream().listen(
+        (position) {
+          if (!mounted || !_liveNavigation) return;
+          final point = LatLng(position.latitude, position.longitude);
+          setState(() {
+            _gpsPoint = point;
+            _speedKmh = position.speed.isFinite && position.speed > 0
+                ? position.speed * 3.6
+                : 0;
+          });
+          if (position.heading.isFinite &&
+              position.heading >= 0 &&
+              position.speed > 1.5) {
+            _mapController.rotate(-position.heading);
+          }
+          _mapController.move(point, 17);
+          _advanceLiveManeuver(point);
+          unawaited(_maybeReroute(point));
+          unawaited(_refreshRoadInfo(point));
+        },
+        onError: (_) {
+          if (!mounted) return;
+          setState(() => _liveNavigation = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ارتباط زنده با GPS قطع شد.')),
+          );
+        },
+      );
+    } on LocationServiceDisabledException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location دستگاه خاموش است. آن را روشن و دوباره شروع کنید.')),
+      );
+    } on PermissionDeniedException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('دسترسی Location برای حالت راننده لازم است.')),
+      );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('شروع مسیریابی زنده نیاز به GPS و دسترسی موقعیت دارد.')),
+        const SnackBar(content: Text('GPS نتوانست موقعیت فعلی را دریافت کند.')),
       );
+    } finally {
+      if (mounted) setState(() => _startingNavigation = false);
     }
   }
 
@@ -746,6 +792,7 @@ class _MapPageState extends State<MapPage> {
                 onBuild: _buildRoute,
                 onConfirm: _confirmRoute,
                 onLive: _startLiveNavigation,
+                startingNavigation: _startingNavigation,
                 onSimulation: _startSimulation,
               ),
             ),
@@ -897,6 +944,7 @@ class _RouteCard extends StatelessWidget {
     required this.onBuild,
     required this.onConfirm,
     required this.onLive,
+    required this.startingNavigation,
     required this.onSimulation,
   });
 
@@ -909,6 +957,7 @@ class _RouteCard extends StatelessWidget {
   final VoidCallback onBuild;
   final VoidCallback onConfirm;
   final VoidCallback onLive;
+  final bool startingNavigation;
   final VoidCallback onSimulation;
 
   String _duration(double seconds) {
@@ -991,9 +1040,15 @@ class _RouteCard extends StatelessWidget {
                     height: 48,
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: onLive,
-                      icon: const Icon(Icons.navigation_rounded),
-                      label: const Text('شروع رانندگی با GPS'),
+                      onPressed: startingNavigation ? null : onLive,
+                      icon: startingNavigation
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.navigation_rounded),
+                      label: Text(startingNavigation ? 'در حال آماده‌سازی…' : 'شروع رانندگی با GPS'),
                     ),
                   ),
                   const SizedBox(height: 8),
