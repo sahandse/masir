@@ -11,6 +11,7 @@ class RouteManeuver {
     required this.beginShapeIndex,
     required this.endShapeIndex,
     required this.type,
+    required this.lanes,
   });
 
   final String instruction;
@@ -19,6 +20,7 @@ class RouteManeuver {
   final int beginShapeIndex;
   final int endShapeIndex;
   final int type;
+  final List<String> lanes;
 }
 
 class RouteResult {
@@ -94,6 +96,9 @@ class ValhallaService {
         beginShapeIndex: (item['begin_shape_index'] as num?)?.toInt() ?? 0,
         endShapeIndex: (item['end_shape_index'] as num?)?.toInt() ?? 0,
         type: (item['type'] as num?)?.toInt() ?? 0,
+        lanes: ((item['lanes'] as List<dynamic>?) ?? const [])
+            .map((e) => e.toString())
+            .toList(growable: false),
       );
     }).toList(growable: false);
 
