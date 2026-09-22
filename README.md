@@ -24,6 +24,9 @@
 - ETA و فاصله واقعی برگشتی از routing engine
 - بدون fallback location و بدون fake/demo data
 
+## Android build
+GitHub Actions برای ساخت خودکار APK و AAB فعال شده است.
+
 ## اجرا
 ```bash
 flutter create --platforms=android --org ir.sahand .
