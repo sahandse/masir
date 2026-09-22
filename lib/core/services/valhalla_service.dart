@@ -43,7 +43,12 @@ class ValhallaService {
 
   bool get isConfigured => _baseUrl.trim().isNotEmpty;
 
-  Future<RouteResult> route(LatLng from, LatLng to) async {
+  Future<RouteResult> route(
+    LatLng from,
+    LatLng to, {
+    double useHighways = 1.0,
+    double useTolls = 1.0,
+  }) async {
     if (!isConfigured) {
       throw StateError('VALHALLA_BASE_URL is not configured');
     }
@@ -54,6 +59,12 @@ class ValhallaService {
         {'lat': to.latitude, 'lon': to.longitude},
       ],
       'costing': 'auto',
+      'costing_options': {
+        'auto': {
+          'use_highways': useHighways,
+          'use_tolls': useTolls,
+        },
+      },
       'directions_options': {
         'units': 'kilometers',
         'language': 'fa-IR',
@@ -92,6 +103,23 @@ class ValhallaService {
       kilometers: (summary['length'] as num).toDouble(),
       maneuvers: maneuvers,
     );
+  }
+
+  Future<List<RouteResult>> routeAlternatives(LatLng from, LatLng to) async {
+    final results = await Future.wait([
+      route(from, to),
+      route(from, to, useHighways: 0.35, useTolls: 1.0),
+      route(from, to, useHighways: 0.75, useTolls: 0.0),
+    ]);
+
+    final unique = <RouteResult>[];
+    for (final candidate in results) {
+      final duplicate = unique.any((r) =>
+          (r.kilometers - candidate.kilometers).abs() < 0.05 &&
+          (r.seconds - candidate.seconds).abs() < 20);
+      if (!duplicate) unique.add(candidate);
+    }
+    return unique;
   }
 
   List<LatLng> _decodePolyline6(String encoded) {
