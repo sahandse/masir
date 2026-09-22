@@ -914,6 +914,12 @@ class _MapPageState extends State<MapPage> {
                 maxSpeedKmh: _maxSpeedKmh,
                 speedCameraNearby: _speedCameraNearby,
                 speedWarning: _navPrefs.speedWarning,
+                remainingKilometers: route.maneuvers
+                    .skip(_maneuverIndex)
+                    .fold<double>(0, (sum, item) => sum + item.kilometers),
+                remainingSeconds: route.maneuvers
+                    .skip(_maneuverIndex)
+                    .fold<double>(0, (sum, item) => sum + item.seconds),
                 onClose: _stopNavigation,
               ),
             ),
@@ -1240,6 +1246,8 @@ class _NavigationBanner extends StatelessWidget {
     required this.maxSpeedKmh,
     required this.speedCameraNearby,
     required this.speedWarning,
+    required this.remainingKilometers,
+    required this.remainingSeconds,
     required this.onClose,
   });
 
@@ -1251,7 +1259,17 @@ class _NavigationBanner extends StatelessWidget {
   final int? maxSpeedKmh;
   final bool speedCameraNearby;
   final bool speedWarning;
+  final double remainingKilometers;
+  final double remainingSeconds;
   final VoidCallback onClose;
+
+  String _formatEta(double seconds) {
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes دقیقه';
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    return rest == 0 ? '$hours ساعت' : '$hours:${rest.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1310,6 +1328,8 @@ class _NavigationBanner extends StatelessWidget {
                           ),
                           child: Text(maxSpeedKmh == null ? 'حد —' : 'حد $maxSpeedKmh', style: const TextStyle(fontWeight: FontWeight.w800)),
                         ),
+                      Text('${remainingKilometers.toStringAsFixed(1)} km', style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(_formatEta(remainingSeconds), style: const TextStyle(fontWeight: FontWeight.w800)),
                       if (speedCameraNearby) const Icon(Icons.photo_camera_outlined, size: 18),
                     ],
                   ),
