@@ -3,11 +3,36 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
+class RouteManeuver {
+  const RouteManeuver({
+    required this.instruction,
+    required this.kilometers,
+    required this.seconds,
+    required this.beginShapeIndex,
+    required this.endShapeIndex,
+    required this.type,
+  });
+
+  final String instruction;
+  final double kilometers;
+  final double seconds;
+  final int beginShapeIndex;
+  final int endShapeIndex;
+  final int type;
+}
+
 class RouteResult {
-  const RouteResult({required this.points, required this.seconds, required this.kilometers});
+  const RouteResult({
+    required this.points,
+    required this.seconds,
+    required this.kilometers,
+    required this.maneuvers,
+  });
+
   final List<LatLng> points;
   final double seconds;
   final double kilometers;
+  final List<RouteManeuver> maneuvers;
 }
 
 class ValhallaService {
@@ -22,26 +47,50 @@ class ValhallaService {
     if (!isConfigured) {
       throw StateError('VALHALLA_BASE_URL is not configured');
     }
+
     final body = {
       'locations': [
         {'lat': from.latitude, 'lon': from.longitude},
         {'lat': to.latitude, 'lon': to.longitude},
       ],
       'costing': 'auto',
-      'directions_options': {'units': 'kilometers'},
+      'directions_options': {
+        'units': 'kilometers',
+        'language': 'fa-IR',
+      },
     };
+
     final response = await _dio.get<Map<String, dynamic>>(
       '$_baseUrl/route',
       queryParameters: {'json': jsonEncode(body)},
     );
+
     final trip = response.data!['trip'] as Map<String, dynamic>;
     final summary = trip['summary'] as Map<String, dynamic>;
     final legs = trip['legs'] as List<dynamic>;
-    final shape = (legs.first as Map<String, dynamic>)['shape'] as String;
+    final firstLeg = legs.first as Map<String, dynamic>;
+    final shape = firstLeg['shape'] as String;
+    final rawManeuvers = (firstLeg['maneuvers'] as List<dynamic>?) ?? const [];
+
+    final maneuvers = rawManeuvers.map((raw) {
+      final item = raw as Map<String, dynamic>;
+      return RouteManeuver(
+        instruction: (item['instruction'] as String?)?.trim().isNotEmpty == true
+            ? item['instruction'] as String
+            : 'ادامه مسیر',
+        kilometers: (item['length'] as num?)?.toDouble() ?? 0,
+        seconds: (item['time'] as num?)?.toDouble() ?? 0,
+        beginShapeIndex: (item['begin_shape_index'] as num?)?.toInt() ?? 0,
+        endShapeIndex: (item['end_shape_index'] as num?)?.toInt() ?? 0,
+        type: (item['type'] as num?)?.toInt() ?? 0,
+      );
+    }).toList(growable: false);
+
     return RouteResult(
       points: _decodePolyline6(shape),
       seconds: (summary['time'] as num).toDouble(),
       kilometers: (summary['length'] as num).toDouble(),
+      maneuvers: maneuvers,
     );
   }
 
@@ -50,26 +99,33 @@ class ValhallaService {
     var index = 0;
     var lat = 0;
     var lng = 0;
+
     while (index < encoded.length) {
       var result = 0;
       var shift = 0;
       int byte;
+
       do {
         byte = encoded.codeUnitAt(index++) - 63;
         result |= (byte & 0x1f) << shift;
         shift += 5;
       } while (byte >= 0x20);
+
       lat += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
       result = 0;
       shift = 0;
+
       do {
         byte = encoded.codeUnitAt(index++) - 63;
         result |= (byte & 0x1f) << shift;
         shift += 5;
       } while (byte >= 0x20);
+
       lng += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
       coordinates.add(LatLng(lat / 1e6, lng / 1e6));
     }
+
     return coordinates;
   }
 }
