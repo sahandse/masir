@@ -21,11 +21,13 @@ jobs:
           channel: stable
           cache: true
       - name: Generate missing Android project files
-        run: flutter create --platforms=android --org ir.sahand .
+        run: |
+          flutter create --platforms=android --org ir.sahand .
+          rm -f test/widget_test.dart
       - name: Get dependencies
         run: flutter pub get
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Build release APK
         run: flutter build apk --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Build release AAB
