@@ -359,9 +359,9 @@ class _MapPageState extends State<MapPage> {
               child: Material(
                 borderRadius: BorderRadius.circular(18),
                 color: Theme.of(context).colorScheme.surface,
-                elevation: 8,
+                elevation: 4,
                 child: Padding(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                   child: Text(
                     _pickTarget == _PickTarget.origin
                         ? 'روی نقشه لمس طولانی کن تا مبدا انتخاب شود.'
@@ -456,7 +456,7 @@ class _RouteInputs extends StatelessWidget {
     return Card(
       elevation: 8,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           children: [
             _LocationRow(
@@ -470,7 +470,7 @@ class _RouteInputs extends StatelessWidget {
                 icon: const Icon(Icons.my_location_rounded),
               ),
             ),
-            const Divider(height: 12),
+            const Divider(height: 8),
             _LocationRow(
               icon: Icons.flag_rounded,
               label: destination?.title ?? 'انتخاب مقصد',
@@ -510,7 +510,7 @@ class _LocationRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             onTap: onSearch,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding: const EdgeInsets.symmetric(vertical: 7),
               child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
           ),
@@ -606,6 +606,7 @@ class _RouteCard extends StatelessWidget {
               Column(
                 children: [
                   SizedBox(
+                    height: 48,
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: onLive,
@@ -615,6 +616,7 @@ class _RouteCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
+                    height: 46,
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: onSimulation,
@@ -654,7 +656,13 @@ class _NavigationBanner extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         child: Row(
           children: [
-            CircleAvatar(
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: Icon(live ? Icons.navigation_rounded : Icons.route_rounded),
             ),
             const SizedBox(width: 12),
@@ -664,7 +672,7 @@ class _NavigationBanner extends StatelessWidget {
                 children: [
                   Text(
                     maneuver.instruction,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, height: 1.35),
                   ),
                   const SizedBox(height: 4),
                   Text('مرحله ${index + 1} از $count • ${maneuver.kilometers.toStringAsFixed(1)} کیلومتر'),
