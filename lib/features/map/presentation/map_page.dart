@@ -164,10 +164,6 @@ class _MapPageState extends State<MapPage> {
         _maneuverIndex = 0;
       });
 
-      if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
-        unawaited(_voice.speak(liveRoute.maneuvers.first.instruction));
-      }
-
       if (result.points.isNotEmpty) {
         _mapController.fitCamera(
           CameraFit.coordinates(
@@ -253,6 +249,10 @@ class _MapPageState extends State<MapPage> {
         _simulation = false;
         _maneuverIndex = 0;
       });
+
+      if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
+        unawaited(_voice.speak(liveRoute.maneuvers.first.instruction));
+      }
 
       await _positionSubscription?.cancel();
       _positionSubscription = _location.positionStream().listen((position) {
