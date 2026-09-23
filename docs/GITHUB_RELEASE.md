@@ -7,9 +7,9 @@ Branch اصلی:
 `main`
 
 نسخه فعلی:
-`0.2.0+2`
+`0.7.0+8`
 
 Tag پیشنهادی:
-`v0.2.0`
+`v0.7.0`
 
 هیچ API key، signing key یا credential نباید داخل repository commit شود.

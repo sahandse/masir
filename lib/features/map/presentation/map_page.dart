@@ -45,6 +45,9 @@ class _MapPageState extends State<MapPage> {
   List<RouteResult> _alternatives = const [];
   int _routeIndex = 0;
   List<OsmPoi> _pois = const [];
+  List<RoadReport> _reportsOnMap = const [];
+  PlaceResult? _homePlace;
+  PlaceResult? _workPlace;
   LatLng? _gpsPoint;
   double _speedKmh = 0;
   int? _maxSpeedKmh;
@@ -54,6 +57,7 @@ class _MapPageState extends State<MapPage> {
   NavigationPreferences _navPrefs = const NavigationPreferences();
   DateTime? _lastRerouteAt;
   DateTime? _lastRoadInfoAt;
+  DateTime? _lastReportsAt;
 
   bool _routingNow = false;
   bool _startingNavigation = false;
@@ -68,7 +72,61 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _loadNavigationPreferences();
+    _loadQuickPlaces();
     _restoreNavigationSession();
+    unawaited(_useGpsAsOrigin(silent: true));
+  }
+
+  Future<void> _loadQuickPlaces() async {
+    final home = await _saved.getHome();
+    final work = await _saved.getWork();
+    if (!mounted) return;
+    setState(() {
+      _homePlace = home;
+      _workPlace = work;
+    });
+  }
+
+  Future<void> _goToSavedPlace(PlaceResult? place, {required String missingLabel}) async {
+    if (place == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$missingLabel هنوز ذخیره نشده است. اول یک مقصد را ذخیره کنید.')),
+      );
+      return;
+    }
+    setState(() {
+      _destination = place;
+      _route = null;
+      _alternatives = const [];
+      _routeConfirmed = false;
+      _simulation = false;
+      _liveNavigation = false;
+      _maneuverIndex = 0;
+    });
+    _mapController.move(place.position, 15);
+    if (_origin == null) {
+      await _useGpsAsOrigin();
+    }
+    if (_origin != null) {
+      await _buildRoute();
+    }
+  }
+
+  Future<void> _refreshNearbyReports(LatLng center) async {
+    final now = DateTime.now();
+    if (_lastReportsAt != null &&
+        now.difference(_lastReportsAt!) < const Duration(seconds: 40)) {
+      return;
+    }
+    _lastReportsAt = now;
+    try {
+      final items = await _reports.nearby(center: center);
+      if (!mounted) return;
+      setState(() => _reportsOnMap = items);
+    } catch (_) {
+      // Keep last known reports; never invent events.
+    }
   }
 
   Future<void> _restoreNavigationSession() async {
@@ -141,7 +199,7 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  Future<void> _useGpsAsOrigin() async {
+  Future<void> _useGpsAsOrigin({bool silent = false}) async {
     try {
       final position = await _location.currentPosition();
       final point = LatLng(position.latitude, position.longitude);
@@ -157,8 +215,9 @@ class _MapPageState extends State<MapPage> {
         _routeConfirmed = false;
       });
       _mapController.move(point, 16);
+      unawaited(_refreshNearbyReports(point));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || silent) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('برای استفاده از موقعیت فعلی، GPS و دسترسی موقعیت را فعال کنید.')),
       );
@@ -211,6 +270,7 @@ class _MapPageState extends State<MapPage> {
         useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
         useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
       );
+      options.sort((a, b) => a.seconds.compareTo(b.seconds));
       final result = options.first;
       await _saved.addHistory(_destination!);
       if (!mounted) return;
@@ -373,6 +433,7 @@ class _MapPageState extends State<MapPage> {
           _advanceLiveManeuver(point);
           unawaited(_maybeReroute(point));
           unawaited(_refreshRoadInfo(point));
+          unawaited(_refreshNearbyReports(point));
         },
         onError: (_) {
           if (!mounted) return;
@@ -504,6 +565,7 @@ class _MapPageState extends State<MapPage> {
     if (place == null) return;
     await _saved.saveHome(place);
     if (!mounted) return;
+    setState(() => _homePlace = place);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('خانه ذخیره شد.')),
     );
@@ -514,6 +576,7 @@ class _MapPageState extends State<MapPage> {
     if (place == null) return;
     await _saved.saveWork(place);
     if (!mounted) return;
+    setState(() => _workPlace = place);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('محل کار ذخیره شد.')),
     );
@@ -873,14 +936,12 @@ class _MapPageState extends State<MapPage> {
                 leading: const Icon(Icons.report_gmailerrorred_rounded),
                 title: const Text('گزارش مسیر'),
                 subtitle: Text(_reports.isConfigured
-                    ? 'تصادف، ترافیک، بسته بودن مسیر یا خطر'
-                    : 'برای گزارش عمومی، سرور گزارش باید تنظیم شود'),
-                onTap: _reports.isConfigured
-                    ? () {
-                        Navigator.pop(sheetContext);
-                        _showReportSheet();
-                      }
-                    : null,
+                    ? 'ارسال محلی + همگام با سرور جامعه'
+                    : 'ذخیره روی دستگاه؛ سرور اختیاری برای جامعه'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showReportSheet();
+                },
               ),
             ],
           ),
@@ -891,10 +952,16 @@ class _MapPageState extends State<MapPage> {
 
   void _showReportSheet() {
     final point = _gpsPoint ?? _origin?.position;
-    if (point == null) return;
+    if (point == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('برای گزارش، اول موقعیت فعلی را فعال کنید.')),
+      );
+      return;
+    }
     final items = <MapEntry<String, String>>[
       const MapEntry('traffic', 'ترافیک'),
       const MapEntry('accident', 'تصادف'),
+      const MapEntry('police', 'پلیس'),
       const MapEntry('closure', 'مسیر بسته'),
       const MapEntry('hazard', 'خطر'),
       const MapEntry('roadwork', 'عملیات جاده‌ای'),
@@ -907,21 +974,38 @@ class _MapPageState extends State<MapPage> {
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
+            const ListTile(
+              title: Text('گزارش رویداد'),
+              subtitle: Text('مثل Waze — رایگان، بدون حساب اجباری'),
+            ),
             for (final item in items)
               ListTile(
+                leading: Icon(_reportIcon(item.key)),
                 title: Text(item.value),
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   try {
-                    await _reports.submit(type: item.key, position: point);
+                    final report = await _reports.submit(
+                      type: item.key,
+                      position: point,
+                    );
                     if (!mounted) return;
+                    setState(() {
+                      _reportsOnMap = [report, ..._reportsOnMap];
+                    });
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('گزارش ارسال شد.')),
+                      SnackBar(
+                        content: Text(
+                          _reports.isConfigured
+                              ? 'گزارش «${report.labelFa}» ذخیره و ارسال شد.'
+                              : 'گزارش «${report.labelFa}» روی دستگاه ذخیره شد.',
+                        ),
+                      ),
                     );
                   } catch (_) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('ارسال گزارش انجام نشد.')),
+                      const SnackBar(content: Text('ثبت گزارش انجام نشد.')),
                     );
                   }
                 },
@@ -930,6 +1014,23 @@ class _MapPageState extends State<MapPage> {
         ),
       ),
     );
+  }
+
+  IconData _reportIcon(String type) {
+    switch (type) {
+      case 'traffic':
+        return Icons.traffic_rounded;
+      case 'accident':
+        return Icons.car_crash;
+      case 'police':
+        return Icons.local_police_outlined;
+      case 'closure':
+        return Icons.block;
+      case 'roadwork':
+        return Icons.construction_rounded;
+      default:
+        return Icons.warning_amber_rounded;
+    }
   }
 
   void _stopNavigation() {
@@ -1009,6 +1110,23 @@ class _MapPageState extends State<MapPage> {
                         child: const _PoiMarker(),
                       ),
                     ),
+                  for (final report in _reportsOnMap)
+                    Marker(
+                      point: report.position,
+                      width: 40,
+                      height: 40,
+                      child: Tooltip(
+                        message: report.labelFa,
+                        child: _ReportMarker(type: report.type),
+                      ),
+                    ),
+                  for (var i = 0; i < _viaPoints.length; i++)
+                    Marker(
+                      point: _viaPoints[i].position,
+                      width: 40,
+                      height: 40,
+                      child: _ViaMarker(index: i + 1),
+                    ),
                   if (_origin != null)
                     Marker(
                       point: _origin!.position,
@@ -1048,19 +1166,32 @@ class _MapPageState extends State<MapPage> {
               top: MediaQuery.paddingOf(context).top + 12,
               left: 12,
               right: 12,
-              child: _RouteInputs(
-                origin: _origin,
-                destination: _destination,
-                onOriginSearch: () => _openSearch(_PickTarget.origin),
-                onDestinationSearch: () => _openSearch(_PickTarget.destination),
-                onOriginMapPick: () => setState(() => _pickTarget = _PickTarget.origin),
-                onDestinationMapPick: () => setState(() => _pickTarget = _PickTarget.destination),
-                onGpsOrigin: _useGpsAsOrigin,
+              child: Column(
+                children: [
+                  _RouteInputs(
+                    origin: _origin,
+                    destination: _destination,
+                    onOriginSearch: () => _openSearch(_PickTarget.origin),
+                    onDestinationSearch: () => _openSearch(_PickTarget.destination),
+                    onOriginMapPick: () => setState(() => _pickTarget = _PickTarget.origin),
+                    onDestinationMapPick: () => setState(() => _pickTarget = _PickTarget.destination),
+                    onGpsOrigin: _useGpsAsOrigin,
+                  ),
+                  const SizedBox(height: 8),
+                  _QuickDestinations(
+                    hasHome: _homePlace != null,
+                    hasWork: _workPlace != null,
+                    onHome: () => _goToSavedPlace(_homePlace, missingLabel: 'خانه'),
+                    onWork: () => _goToSavedPlace(_workPlace, missingLabel: 'محل کار'),
+                    onSearch: () => _openSearch(_PickTarget.destination),
+                    onReports: _showReportSheet,
+                  ),
+                ],
               ),
             ),
           if (_pickTarget != null && !navigating)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 148,
+              top: MediaQuery.paddingOf(context).top + 210,
               left: 24,
               right: 24,
               child: Material(
@@ -1136,7 +1267,7 @@ class _MapPageState extends State<MapPage> {
           if (!navigating)
             Positioned(
               right: 12,
-              bottom: _origin != null && _destination != null ? 210 : 20,
+              bottom: _origin != null && _destination != null ? 230 : 20,
               child: FloatingActionButton.small(
                 heroTag: 'tools',
                 onPressed: _showToolsSheet,
@@ -1175,6 +1306,18 @@ class _MapPageState extends State<MapPage> {
           if (_liveNavigation)
             Positioned(
               left: 12,
+              bottom: 78,
+              child: FloatingActionButton(
+                heroTag: 'report',
+                backgroundColor: const Color(0xFFE4572E),
+                foregroundColor: Colors.white,
+                onPressed: _showReportSheet,
+                child: const Icon(Icons.campaign_rounded),
+              ),
+            ),
+          if (_liveNavigation)
+            Positioned(
+              left: 12,
               right: 12,
               bottom: 18,
               child: SafeArea(
@@ -1186,6 +1329,66 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickDestinations extends StatelessWidget {
+  const _QuickDestinations({
+    required this.hasHome,
+    required this.hasWork,
+    required this.onHome,
+    required this.onWork,
+    required this.onSearch,
+    required this.onReports,
+  });
+
+  final bool hasHome;
+  final bool hasWork;
+  final VoidCallback onHome;
+  final VoidCallback onWork;
+  final VoidCallback onSearch;
+  final VoidCallback onReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          ActionChip(
+            avatar: const Icon(Icons.search_rounded, size: 18),
+            label: const Text('کجا می‌روی؟'),
+            onPressed: onSearch,
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: Icon(
+              Icons.home_rounded,
+              size: 18,
+              color: hasHome ? null : Theme.of(context).disabledColor,
+            ),
+            label: const Text('خانه'),
+            onPressed: onHome,
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: Icon(
+              Icons.work_rounded,
+              size: 18,
+              color: hasWork ? null : Theme.of(context).disabledColor,
+            ),
+            label: const Text('محل کار'),
+            onPressed: onWork,
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.campaign_rounded, size: 18),
+            label: const Text('گزارش'),
+            onPressed: onReports,
+          ),
         ],
       ),
     );
@@ -1345,16 +1548,25 @@ class _RouteCard extends StatelessWidget {
             if (route != null && alternatives.length > 1) ...[
               const SizedBox(height: 10),
               SizedBox(
-                height: 38,
+                height: 42,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: alternatives.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) => ChoiceChip(
-                    selected: index == selectedRouteIndex,
-                    onSelected: (_) => onSelectRoute(index),
-                    label: Text('مسیر ${index + 1}'),
-                  ),
+                  itemBuilder: (context, index) {
+                    final option = alternatives[index];
+                    final minutes = (option.seconds / 60).round();
+                    final km = option.kilometers.toStringAsFixed(1);
+                    return ChoiceChip(
+                      selected: index == selectedRouteIndex,
+                      onSelected: (_) => onSelectRoute(index),
+                      label: Text(
+                        index == 0
+                            ? 'سریع‌تر · $minutes د · $km کم'
+                            : 'مسیر ${index + 1} · $minutes د · $km کم',
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -1636,6 +1848,65 @@ class _PoiMarker extends StatelessWidget {
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: const Icon(Icons.place_outlined, size: 18),
+    );
+  }
+}
+
+class _ViaMarker extends StatelessWidget {
+  const _ViaMarker({required this.index});
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.tertiaryContainer,
+        shape: BoxShape.circle,
+        border: Border.all(color: Theme.of(context).colorScheme.tertiary, width: 2),
+      ),
+      child: Center(
+        child: Text(
+          '$index',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Theme.of(context).colorScheme.onTertiaryContainer,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportMarker extends StatelessWidget {
+  const _ReportMarker({required this.type});
+  final String type;
+
+  IconData get _icon {
+    switch (type) {
+      case 'traffic':
+        return Icons.traffic_rounded;
+      case 'accident':
+        return Icons.car_crash;
+      case 'police':
+        return Icons.local_police_outlined;
+      case 'closure':
+        return Icons.block;
+      case 'roadwork':
+        return Icons.construction_rounded;
+      default:
+        return Icons.warning_amber_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Color(0xFFE4572E),
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(blurRadius: 8, color: Colors.black26)],
+      ),
+      child: Icon(_icon, color: Colors.white, size: 18),
     );
   }
 }

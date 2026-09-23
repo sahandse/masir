@@ -11,7 +11,7 @@
 - جستجوی مکان: Nominatim
 - مسیریابی: Valhalla
 - POI: OSM/Overpass
-- گزارش کاربران: Backend اختصاصی پروژه
+- گزارش کاربران: ذخیره محلی روی دستگاه + Backend اختیاری (`REPORT_API_BASE_URL`)
 
 ## Google Maps Platform
 Google Maps Platform سهمیه رایگان ماهانه دارد، اما برای این اپ منبع اصلی نیست. بخش‌های مختلف پس از سقف رایگان Pay-as-you-go هستند و محتوای Google باید مطابق Terms خود Google استفاده شود. بنابراین Google فقط در آینده به‌عنوان integration جداگانه و اختیاری بررسی می‌شود و داده آن با نقشه OSM مخلوط نمی‌شود.
