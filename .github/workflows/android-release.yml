@@ -1,22 +1,26 @@
-name: Android Release Build
+name: Android Release
 
 on:
   push:
-    branches: [ main ]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
-  group: masir-android-release-main
-  cancel-in-progress: true
+  group: masir-android-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.MASIR_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.MASIR_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.MASIR_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -24,6 +28,12 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Verify release signing secrets
+        run: |
+          test -n "${{ secrets.MASIR_KEYSTORE_BASE64 }}"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
       - name: Generate Android project files
         run: |
           flutter create --platforms=android --org ir.sahand .
@@ -33,6 +43,19 @@ jobs:
           mkdir -p android/app/src/main/res/drawable
           cp android_icon/masir_app_icon.xml android/app/src/main/res/drawable/masir_app_icon.xml
           sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
+      - name: Configure stable Android signing
+        run: |
+          echo '${{ secrets.MASIR_KEYSTORE_BASE64 }}' | base64 --decode > android/app/upload-keystore.jks
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          old = 'signingConfig = signingConfigs.getByName("debug")'
+          new = '''signingConfig = signingConfigs.create("release") {\n            storeFile = file("upload-keystore.jks")\n            storePassword = System.getenv("KEYSTORE_PASSWORD")\n            keyAlias = System.getenv("KEY_ALIAS")\n            keyPassword = System.getenv("KEY_PASSWORD")\n        }'''
+          if old not in s:
+              raise SystemExit('Flutter release signing placeholder not found')
+          p.write_text(s.replace(old, new))
+          PY
       - name: Get dependencies
         run: flutter pub get
       - name: Analyze
@@ -45,36 +68,34 @@ jobs:
         run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Rename release files
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.8.1.apk
-          cp build/app/outputs/bundle/release/app-release.aab masir-v0.8.1.aab
+          VERSION="${GITHUB_REF_NAME:-v0.9.0}"
+          cp build/app/outputs/flutter-apk/app-release.apk "masir-${VERSION}.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "masir-${VERSION}.aab"
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-v0.8.1
+          name: masir-android-${{ github.ref_name }}
           path: |
-            masir-v0.8.1.apk
-            masir-v0.8.1.aab
+            masir-${{ github.ref_name }}.apk
+            masir-${{ github.ref_name }}.aab
           if-no-files-found: error
       - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main'
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.8.1
-          name: Masir v0.8.1
-          target_commitish: main
+          tag_name: ${{ github.ref_name }}
+          name: Masir ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            مسیر v0.8.1
+            مسیر ${{ github.ref_name }}
 
-            - لوگوی جدید مسیر به‌عنوان آیکون رسمی اپ
-            - Lane Guidance واقعی از داده Valhalla در صورت ارائه توسط مسیر
-            - نمایش نام خیابان بعدی و اطلاعات خروجی
-            - آیکون‌های حرفه‌ای برای پیچ، خروجی، میدان و ادامه مسیر
-            - Navigation Banner مینیمال و مناسب رانندگی
-            - ETA، فاصله باقی‌مانده و سرعت زنده
-            - دیتای واقعی OpenStreetMap / Nominatim / Overpass
-            - مسیریابی و Re-route واقعی Valhalla
+            - Driver Mode مینیمال و حرفه‌ای
+            - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
+            - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
+            - ETA، سرعت و فاصله زنده
+            - اطلاعات واقعی OSM/Nominatim/Overpass/Valhalla
             - بدون Demo/Fake Data برای مسیر و مکان‌ها
+            - امضای ثابت Android برای آپدیت نسخه‌های بعدی
           files: |
-            masir-v0.8.1.apk
-            masir-v0.8.1.aab
+            masir-${{ github.ref_name }}.apk
+            masir-${{ github.ref_name }}.aab
