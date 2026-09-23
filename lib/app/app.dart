@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:masir/app/theme.dart';
-import 'package:masir/features/map/presentation/map_page.dart';
+import 'package:masir/features/map/presentation/map_experience_page.dart';
 
 class MasirApp extends StatelessWidget {
   const MasirApp({super.key});
@@ -23,7 +23,7 @@ class MasirApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       home: const Directionality(
         textDirection: TextDirection.rtl,
-        child: MapPage(),
+        child: MapExperiencePage(),
       ),
     );
   }
