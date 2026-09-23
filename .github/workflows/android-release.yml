@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -20,7 +20,7 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate missing Android project files
+      - name: Generate Android project files
         run: |
           flutter create --platforms=android --org ir.sahand .
           rm -f test/widget_test.dart
@@ -28,15 +28,46 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze --no-fatal-infos
+      - name: Test
+        run: flutter test
       - name: Build release APK
         run: flutter build apk --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Build release AAB
         run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
+      - name: Rename release files
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.7.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab masir-v0.7.0.aab
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-v0.2.0
+          name: masir-android-v0.7.0
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
-            build/app/outputs/bundle/release/app-release.aab
+            masir-v0.7.0.apk
+            masir-v0.7.0.aab
           if-no-files-found: error
+      - name: Publish GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.7.0
+          name: Masir v0.7.0
+          target_commitish: main
+          generate_release_notes: true
+          body: |
+            مسیر v0.7.0
+
+            - دیتای واقعی OpenStreetMap / Nominatim / Overpass
+            - مسیریابی واقعی Valhalla
+            - Driver Mode با GPS زنده
+            - ETA و فاصله زنده تا مانور بعدی
+            - راهنمای صوتی فارسی ۸۰۰/۳۰۰/۱۰۰ متر و زمان پیچ
+            - تشخیص خروج از مسیر و Re-route واقعی
+            - تشخیص رسیدن به مقصد
+            - POIهای واقعی اطراف
+            - نام جاده، محدودیت سرعت و دوربین سرعت در صورت وجود داده OSM
+
+            هیچ Demo/Fake Data برای مسیریابی و مکان‌ها استفاده نمی‌شود.
+          files: |
+            masir-v0.7.0.apk
+            masir-v0.7.0.aab
