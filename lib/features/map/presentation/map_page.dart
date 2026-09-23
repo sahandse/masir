@@ -546,7 +546,7 @@ class _MapPageState extends State<MapPage> {
                 shrinkWrap: true,
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (context, index) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final place = items[index];
                   return ListTile(
@@ -1349,7 +1349,7 @@ class _RouteCard extends StatelessWidget {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: alternatives.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  separatorBuilder: (context, index) => const SizedBox(width: 8),
                   itemBuilder: (context, index) => ChoiceChip(
                     selected: index == selectedRouteIndex,
                     onSelected: (_) => onSelectRoute(index),

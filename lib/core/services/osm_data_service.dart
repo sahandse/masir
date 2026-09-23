@@ -15,13 +15,17 @@ class OsmRoadInfo {
 }
 
 class OsmDataService {
-  OsmDataService({Dio? dio}) : _dio = dio ?? Dio();
+  OsmDataService({Dio? dio})
+      : _dio = dio ??
+            Dio(BaseOptions(headers: {
+              'User-Agent': 'MasirNavigation/0.2 (Flutter)',
+            }));
   final Dio _dio;
   static const _overpass = 'https://overpass-api.de/api/interpreter';
 
   Future<List<OsmPoi>> nearbyPois(LatLng center) async {
     final q = '[out:json][timeout:20];('
-        'nwr(around:2500,' + center.latitude.toString() + ',' + center.longitude.toString() + ')' 
+        'nwr(around:2500,${center.latitude},${center.longitude})'
         '["amenity"~"fuel|parking|hospital|restaurant|atm|pharmacy"];'
         ');out center tags;';
     final res = await _dio.post<Map<String, dynamic>>(
@@ -49,8 +53,8 @@ class OsmDataService {
 
   Future<OsmRoadInfo> roadInfo(LatLng point) async {
     final q = '[out:json][timeout:12];('
-        'way(around:45,' + point.latitude.toString() + ',' + point.longitude.toString() + ')["highway"]["maxspeed"];'
-        'node(around:120,' + point.latitude.toString() + ',' + point.longitude.toString() + ')["highway"="speed_camera"];'
+        'way(around:45,${point.latitude},${point.longitude})["highway"]["maxspeed"];'
+        'node(around:120,${point.latitude},${point.longitude})["highway"="speed_camera"];'
         ');out tags center;';
     final res = await _dio.post<Map<String, dynamic>>(
       _overpass,

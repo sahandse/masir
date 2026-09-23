@@ -39,7 +39,8 @@ class ValhallaService {
   ValhallaService({Dio? dio}) : _dio = dio ?? Dio();
   final Dio _dio;
 
-  static const _baseUrl = String.fromEnvironment('VALHALLA_BASE_URL');
+  static const _envUrl = String.fromEnvironment('VALHALLA_BASE_URL');
+  static const _baseUrl = _envUrl != '' ? _envUrl : 'https://valhalla1.openstreetmap.de';
 
   bool get isConfigured => _baseUrl.trim().isNotEmpty;
 
