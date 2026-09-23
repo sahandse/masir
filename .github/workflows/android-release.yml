@@ -2,11 +2,11 @@ name: Android Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
-  group: masir-android-release-${{ github.ref }}
+  group: masir-android-release-v0.9.0
   cancel-in-progress: false
 
 jobs:
@@ -68,37 +68,36 @@ jobs:
         run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Rename release files
         run: |
-          VERSION="${GITHUB_REF_NAME:-v0.9.0}"
-          cp build/app/outputs/flutter-apk/app-release.apk "masir-${VERSION}.apk"
-          cp build/app/outputs/bundle/release/app-release.aab "masir-${VERSION}.aab"
+          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.9.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab masir-v0.9.0.aab
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-${{ github.ref_name }}
+          name: masir-android-v0.9.0
           path: |
-            masir-${{ github.ref_name }}.apk
-            masir-${{ github.ref_name }}.aab
+            masir-v0.9.0.apk
+            masir-v0.9.0.aab
           if-no-files-found: error
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Masir ${{ github.ref_name }}
+          tag_name: v0.9.0
+          name: Masir v0.9.0
+          target_commitish: main
           generate_release_notes: true
           body: |
-            مسیر ${{ github.ref_name }}
+            مسیر v0.9.0
 
-            - لوگوی رسمی مسیر با Vector سازگار Android
-            - Driver Mode مینیمال و حرفه‌ای
+            - Driver Mode V3 مینیمال و حرفه‌ای
             - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
             - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
             - ETA، سرعت و فاصله زنده
-            - اطلاعات واقعی OSM/Nominatim/Overpass/Valhalla
+            - راهنمای صوتی فارسی چندمرحله‌ای
             - جستجو در امتداد مسیر
-            - هشدارهای واقعی construction / restriction / barrier / toll / ferry
+            - هشدارهای واقعی OSM برای construction / restriction / barrier / toll / ferry
+            - اطلاعات واقعی OSM / Nominatim / Overpass / Valhalla
             - بدون Demo/Fake Data برای مسیر و مکان‌ها
             - امضای ثابت Android برای آپدیت نسخه‌های بعدی
           files: |
-            masir-${{ github.ref_name }}.apk
-            masir-${{ github.ref_name }}.aab
+            masir-v0.9.0.apk
+            masir-v0.9.0.aab
