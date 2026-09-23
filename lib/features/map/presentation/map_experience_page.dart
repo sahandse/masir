@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
@@ -18,6 +19,7 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
   final _osm = OsmDataService();
 
   StreamSubscription<dynamic>? _positionSubscription;
+  Timer? _permissionWatcher;
   DateTime? _lastRoadRefresh;
   double _speedKmh = 0;
   OsmRoadInfo? _roadInfo;
@@ -26,28 +28,43 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
   @override
   void initState() {
     super.initState();
-    _startPassiveRoadContext();
+    _tryStartWithoutPrompt();
+    _permissionWatcher = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _tryStartWithoutPrompt(),
+    );
   }
 
-  Future<void> _startPassiveRoadContext() async {
-    try {
-      await _location.ensurePermission();
-      if (!mounted) return;
-      setState(() => _locationReady = true);
+  Future<void> _tryStartWithoutPrompt() async {
+    if (_positionSubscription != null) return;
 
-      await _positionSubscription?.cancel();
-      _positionSubscription = _location.positionStream().listen((position) {
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    if (!enabled) return;
+
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _locationReady = true);
+
+    _positionSubscription = _location.positionStream().listen(
+      (position) {
         if (!mounted) return;
         final speed = position.speed.isFinite && position.speed > 0
             ? position.speed * 3.6
             : 0.0;
         setState(() => _speedKmh = speed);
         _refreshRoadContext(LatLng(position.latitude, position.longitude));
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _locationReady = false);
-    }
+      },
+      onError: (_) {
+        _positionSubscription?.cancel();
+        _positionSubscription = null;
+        if (mounted) setState(() => _locationReady = false);
+      },
+    );
   }
 
   Future<void> _refreshRoadContext(LatLng point) async {
@@ -69,6 +86,7 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
 
   @override
   void dispose() {
+    _permissionWatcher?.cancel();
     _positionSubscription?.cancel();
     super.dispose();
   }
