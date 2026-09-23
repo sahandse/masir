@@ -1,7 +1,7 @@
 name: masir
 description: Persian-first open navigation app built with Flutter and OpenStreetMap.
 publish_to: 'none'
-version: 0.8.0+9
+version: 0.8.1+10
 
 environment:
   sdk: '>=3.9.0 <4.0.0'
