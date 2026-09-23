@@ -1,9 +1,6 @@
-# Next Milestone — Real Data Only
+# Next Milestone
 
-- Alternative routes from Valhalla
-- Persian turn-by-turn maneuver list from real route response
-- Live GPS tracking during navigation
-- Route deviation detection and real re-routing
-- Persisted Home/Work/Favorites/History created by the user only
-- Real nearby POIs from OpenStreetMap
-- No mock, sample, demo or hard-coded location/ETA/traffic records
+- Scale community report backend (Postgres + rate limits)
+- Pre-packaged city offline packs
+- Optional self-hosted traffic tiles when a trusted free feed exists
+- Keep Real Data Only and free distribution guarantees

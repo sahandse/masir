@@ -1,48 +1,41 @@
-# مسیر (Masir) — v0.2.0
+# مسیر (Masir) — مسیریاب رایگان شبیه Waze
 
-مسیریاب فارسی Flutter با داده‌های واقعی و بدون Mock/Demo Data.
+مسیریاب فارسی Flutter با دادهٔ واقعی. هدف: حس نزدیک به Waze، **کاملاً رایگان** برای کاربر نهایی، بدون Google Maps اجباری و بدون دادهٔ جعلی.
 
-## وضعیت نسخه
-نسخه 0.2.0 پایه‌ی Real Data Only است. هیچ مقصد، مختصات، ETA، فاصله یا Route نمونه در رابط کاربری نمایش داده نمی‌شود.
+## نسخه 0.8
+- Backend خودمیزبان گزارش جامعه (`server/`)
+- هشدار رویداد واقعی روی مسیر + پیشنهاد مسیر جایگزین
+- صفحه شروع ساده: «کجا می‌روی؟» + خانه/کار
+- پرهیز مسیریابی از گزارش‌های واقعی ترافیک/تصادف/بسته بودن
+- MapLibre + دانلود منطقه آفلاین
+- APK رایگان بدون حساب اجباری و بدون تبلیغ در رانندگی
+
+جزئیات: [`docs/WAZE_GAP_ANALYSIS.md`](docs/WAZE_GAP_ANALYSIS.md) · [`docs/FREE_DISTRIBUTION.md`](docs/FREE_DISTRIBUTION.md)
 
 ## منابع داده
-- نقشه: OpenStreetMap
+- نقشه برداری: MapLibre + OpenFreeMap / OSM
 - موقعیت: GPS واقعی دستگاه
-- جستجو: Nominatim / OpenStreetMap
-- مسیریابی: Valhalla واقعی از `VALHALLA_BASE_URL`
-- داده شخصی: فقط داده‌ای که خود کاربر ذخیره کند
+- جستجو: Nominatim
+- مسیریابی: Valhalla (`VALHALLA_BASE_URL`)
+- گزارش: محلی + اختیاری `REPORT_API_BASE_URL`
+- ترافیک: فقط از گزارش واقعی کاربران (بدون ترافیک جعلی)
 
-## امکانات فعلی
-- UI فارسی و RTL
-- Light/Dark mode
-- OpenStreetMap
-- GPS واقعی + Permission handling
-- Search واقعی با Nominatim
-- Marker مقصد واقعی
-- Route واقعی از Valhalla
-- Polyline واقعی
-- ETA و فاصله واقعی برگشتی از routing engine
-- بدون fallback location و بدون fake/demo data
-
-## Android build
-GitHub Actions برای ساخت خودکار APK و AAB فعال شده است.
-
-## اجرا
+## اجرا — اپ
 ```bash
 flutter create --platforms=android --org ir.sahand .
 flutter pub get
-flutter run --dart-define=VALHALLA_BASE_URL=https://YOUR-PRODUCTION-VALHALLA
+flutter run \
+  --dart-define=VALHALLA_BASE_URL=https://YOUR-PRODUCTION-VALHALLA \
+  --dart-define=REPORT_API_BASE_URL=http://YOUR-HOST:8080
+```
+
+## اجرا — سرور گزارش
+```bash
+cd server
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8080
 ```
 
 ## Package
 `ir.sahand.masir`
-
-## Roadmap
-1. Alternative Routes واقعی
-2. Live Navigation و Turn-by-Turn فارسی
-3. GPS stream و rerouting
-4. Favorites / Home / Work / History واقعی
-5. Nearby POI واقعی
-6. گزارش کاربران و backend
-7. Traffic با منبع معتبر
-8. MapLibre vector map + offline regions

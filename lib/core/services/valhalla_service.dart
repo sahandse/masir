@@ -47,6 +47,7 @@ class ValhallaService {
     LatLng from,
     LatLng to, {
     List<LatLng> viaPoints = const [],
+    List<LatLng> excludeLocations = const [],
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
@@ -55,10 +56,11 @@ class ValhallaService {
       throw StateError('VALHALLA_BASE_URL is not configured');
     }
 
-    final body = {
+    final body = <String, dynamic>{
       'locations': [
         {'lat': from.latitude, 'lon': from.longitude},
-        for (final via in viaPoints) {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
+        for (final via in viaPoints)
+          {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
         {'lat': to.latitude, 'lon': to.longitude},
       ],
       'costing': 'auto',
@@ -73,6 +75,11 @@ class ValhallaService {
         'units': 'kilometers',
         'language': 'en-US',
       },
+      if (excludeLocations.isNotEmpty)
+        'exclude_locations': [
+          for (final point in excludeLocations.take(12))
+            {'lat': point.latitude, 'lon': point.longitude},
+        ],
     };
 
     final response = await _dio.post<Map<String, dynamic>>(
@@ -136,14 +143,39 @@ class ValhallaService {
     LatLng from,
     LatLng to, {
     List<LatLng> viaPoints = const [],
+    List<LatLng> excludeLocations = const [],
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
   }) async {
     final results = await Future.wait([
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways < 0.5 ? useHighways : 0.35, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls < 0.5 ? useTolls : 0.0, useFerries: useFerries),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        excludeLocations: excludeLocations,
+        useHighways: useHighways,
+        useTolls: useTolls,
+        useFerries: useFerries,
+      ),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        excludeLocations: excludeLocations,
+        useHighways: useHighways < 0.5 ? useHighways : 0.35,
+        useTolls: useTolls,
+        useFerries: useFerries,
+      ),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        excludeLocations: excludeLocations,
+        useHighways: useHighways,
+        useTolls: useTolls < 0.5 ? useTolls : 0.0,
+        useFerries: useFerries,
+      ),
     ]);
 
     final unique = <RouteResult>[];
