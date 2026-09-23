@@ -34,7 +34,7 @@ class RouteManeuver {
   final int beginShapeIndex;
   final int endShapeIndex;
   final int type;
-  final List<RouteLane> lanes;
+  final dynamic lanes;
   final List<String> streetNames;
   final List<String> beginStreetNames;
   final String? exitNumber;
