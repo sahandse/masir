@@ -12,6 +12,7 @@ concurrency:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
@@ -31,7 +32,7 @@ jobs:
           cache: true
       - name: Generate Android project files
         run: |
-          flutter create --platforms=android --org ir.sahand .
+          flutter create --no-pub --platforms=android --org ir.sahand .
           rm -f test/widget_test.dart
       - name: Apply official Masir launcher icon
         run: |
