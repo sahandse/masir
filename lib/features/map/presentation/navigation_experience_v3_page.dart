@@ -803,7 +803,7 @@ IconData _alertIcon(String kind) {
     case 'ferry':
       return Icons.directions_boat_rounded;
     case 'restricted':
-      return Icons.do_not_enter_rounded;
+      return Icons.block_rounded;
     case 'barrier':
       return Icons.block_rounded;
     default:
