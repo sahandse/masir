@@ -38,10 +38,10 @@ jobs:
         run: |
           flutter create --platforms=android --org ir.sahand .
           rm -f test/widget_test.dart
-      - name: Apply Masir launcher icon
+      - name: Apply supplied Masir launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable
-          cp android_icon/masir_app_icon.xml android/app/src/main/res/drawable/masir_app_icon.xml
+          cp android_icon/masir_app_icon.png android/app/src/main/res/drawable/masir_app_icon.png
           sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
       - name: Configure stable Android signing
         run: |
@@ -89,11 +89,14 @@ jobs:
           body: |
             مسیر ${{ github.ref_name }}
 
+            - لوگوی رسمی جدید مسیر
             - Driver Mode مینیمال و حرفه‌ای
             - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
             - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
             - ETA، سرعت و فاصله زنده
             - اطلاعات واقعی OSM/Nominatim/Overpass/Valhalla
+            - جستجو در امتداد مسیر
+            - هشدارهای واقعی construction / restriction / barrier / toll / ferry
             - بدون Demo/Fake Data برای مسیر و مکان‌ها
             - امضای ثابت Android برای آپدیت نسخه‌های بعدی
           files: |
