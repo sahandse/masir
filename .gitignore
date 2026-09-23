@@ -14,3 +14,7 @@ android/key.properties
 .env
 .env.*
 !.env.example
+server/.venv/
+server/data/
+__pycache__/
+*.pyc

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -28,14 +28,18 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze --no-fatal-infos
-      - name: Build release APK
-        run: flutter build apk --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
-      - name: Build release AAB
-        run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
+      - name: Build free release APK
+        run: >
+          flutter build apk --release
+          --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
+      - name: Build free release AAB
+        run: >
+          flutter build appbundle --release
+          --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-v0.2.0
+          name: masir-android-free-v0.8.0
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab
