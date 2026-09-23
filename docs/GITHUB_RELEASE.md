@@ -7,12 +7,12 @@ Branch اصلی:
 `main`
 
 نسخه فعلی:
-`0.8.0+9`
+`1.0.0+10`
 
 Tag پیشنهادی:
-`v0.8.0`
+`v1.0.0`
 
-توزیع: APK رایگان — بدون حساب اجباری و بدون تبلیغ داخل رانندگی.
+بسته تولید: APK + AAB با امضای **release** (نه debug).
 جزئیات: `docs/FREE_DISTRIBUTION.md`
 
 هیچ API key، signing key یا credential نباید داخل repository commit شود.
