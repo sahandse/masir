@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: masir-android-release-v0.9.0
+  group: masir-android-release-v1.1.0
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
       - name: Apply official Masir launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable
-          base64 --decode android_icon/masir_app_icon.b64 > android/app/src/main/res/drawable/masir_app_icon.png
+          cp android_icon/masir_app_icon.png android/app/src/main/res/drawable/masir_app_icon.png
           sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
       - name: Configure stable Android signing when secrets are available
         run: |
@@ -53,7 +53,7 @@ jobs:
           PY
             echo "Using configured release keystore."
           else
-            echo "Release signing secrets are not configured; using Flutter's current fallback signing so the GitHub release can be produced."
+            echo "Release signing secrets are not configured; using Flutter fallback signing."
           fi
       - name: Get dependencies
         run: flutter pub get
@@ -67,36 +67,37 @@ jobs:
         run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Rename release files
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.9.0.apk
-          cp build/app/outputs/bundle/release/app-release.aab masir-v0.9.0.aab
+          cp build/app/outputs/flutter-apk/app-release.apk masir-v1.1.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab masir-v1.1.0.aab
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-v0.9.0
+          name: masir-android-v1.1.0
           path: |
-            masir-v0.9.0.apk
-            masir-v0.9.0.aab
+            masir-v1.1.0.apk
+            masir-v1.1.0.aab
           if-no-files-found: error
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.9.0
-          name: Masir v0.9.0
+          tag_name: v1.1.0
+          name: Masir v1.1.0
           target_commitish: main
           generate_release_notes: true
           body: |
-            مسیر v0.9.0
+            مسیر v1.1.0
 
             - لوگوی رسمی جدید مسیر
             - Driver Mode V3 مینیمال و حرفه‌ای
-            - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
+            - Lane Guidance واقعی از Valhalla در صورت وجود داده
             - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
             - ETA، سرعت و فاصله زنده
-            - راهنمای صوتی فارسی چندمرحله‌ای
+            - راهنمای صوتی فارسی چندمرحله‌ای و راهنمای «سپس»
             - جستجو در امتداد مسیر
             - هشدارهای واقعی OSM برای construction / restriction / barrier / toll / ferry
             - اطلاعات واقعی OSM / Nominatim / Overpass / Valhalla
             - بدون Demo/Fake Data برای مسیر و مکان‌ها
+            - versionCode 12 برای ارتقا از 1.0.1+11
           files: |
-            masir-v0.9.0.apk
-            masir-v0.9.0.aab
+            masir-v1.1.0.apk
+            masir-v1.1.0.aab
