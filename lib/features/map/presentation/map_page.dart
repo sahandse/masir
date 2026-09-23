@@ -16,6 +16,7 @@ import 'package:masir/core/services/route_alert_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
+import 'package:masir/app/masir_logo.dart';
 import 'package:masir/features/map/presentation/masir_map_canvas.dart';
 import 'package:masir/features/search/models/place_result.dart';
 import 'package:masir/features/search/presentation/search_sheet.dart';
@@ -1203,6 +1204,13 @@ class _MapPageState extends State<MapPage> {
               right: 12,
               child: Column(
                 children: [
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: 8, right: 2),
+                      child: MasirLogo(size: 34, showWordmark: true, compact: true),
+                    ),
+                  ),
                   _HomeSearchCard(
                     destinationLabel: _destination?.title,
                     onSearch: () => _openSearch(_PickTarget.destination),
@@ -1239,7 +1247,7 @@ class _MapPageState extends State<MapPage> {
             ),
           if (!navigating && _corridorAlerts.isNotEmpty)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + (_showAdvancedRouting ? 260 : 168),
+              top: MediaQuery.paddingOf(context).top + (_showAdvancedRouting ? 300 : 208),
               left: 12,
               right: 12,
               child: _CorridorAlertBanner(
