@@ -2,9 +2,9 @@
 
 مسیر (Masir) مسیریاب فارسی **رایگان و قابل انتشار** است.
 
-## بسته‌های تولید `1.0.0+10`
-- `masir-1.0.0-release.apk` — نصب مستقیم
-- `masir-1.0.0-release.aab` — Google Play
+## بسته‌های تولید `1.0.1+11`
+- `masir-1.0.1-release.apk` — نصب مستقیم
+- `masir-1.0.1-release.aab` — Google Play
 - package: `ir.sahand.masir`
 - امضا: upload keystore اختصاصی (`CN=Masir`) — **نه debug**
 

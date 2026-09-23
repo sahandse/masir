@@ -53,7 +53,7 @@ jobs:
       - name: Upload production artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-production-v1.0.0
+          name: masir-android-production-v1.0.1
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab

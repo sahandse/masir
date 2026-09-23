@@ -7,10 +7,10 @@ Branch اصلی:
 `main`
 
 نسخه فعلی:
-`1.0.0+10`
+`1.0.1+11`
 
 Tag پیشنهادی:
-`v1.0.0`
+`v1.0.1`
 
 بسته تولید: APK + AAB با امضای **release** (نه debug).
 جزئیات: `docs/FREE_DISTRIBUTION.md`
