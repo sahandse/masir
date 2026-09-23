@@ -4,7 +4,7 @@ import 'package:masir/core/services/navigation_progress_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 
 void main() {
-  const service = NavigationProgressService();
+  final service = NavigationProgressService();
 
   RouteResult route() => const RouteResult(
         points: [
