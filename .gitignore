@@ -18,3 +18,7 @@ server/.venv/
 server/data/
 __pycache__/
 *.pyc
+
+# Release APK artifacts
+masir-*-release.apk
+*.apk
