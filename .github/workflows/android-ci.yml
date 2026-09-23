@@ -1,0 +1,39 @@
+name: Android CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: masir-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android project files
+        run: |
+          flutter create --platforms=android --org ir.sahand .
+          rm -f test/widget_test.dart
+      - name: Apply Masir launcher icon
+        run: |
+          mkdir -p android/app/src/main/res/drawable
+          cp android_icon/masir_app_icon.xml android/app/src/main/res/drawable/masir_app_icon.xml
+          sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - name: Compile release APK without publishing
+        run: flutter build apk --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
