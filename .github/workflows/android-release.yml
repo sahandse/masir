@@ -1,8 +1,9 @@
-name: Android Release Build
+name: Android Production Release
 
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
@@ -20,26 +21,39 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate missing Android project files
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MASIR_UPLOAD_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES: ${{ secrets.MASIR_KEY_PROPERTIES }}
         run: |
-          flutter create --platforms=android --org ir.sahand .
-          rm -f test/widget_test.dart
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEY_PROPERTIES" ]; then
+            echo "Missing MASIR_UPLOAD_KEYSTORE_BASE64 or MASIR_KEY_PROPERTIES secrets"
+            exit 1
+          fi
+          mkdir -p android/keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore/masir-upload.jks
+          printf '%s\n' "$KEY_PROPERTIES" > android/key.properties
       - name: Get dependencies
         run: flutter pub get
       - name: Analyze
         run: flutter analyze --no-fatal-infos
-      - name: Build free release APK
-        run: >
-          flutter build apk --release
-          --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
-      - name: Build free release AAB
-        run: >
-          flutter build appbundle --release
-          --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
-      - name: Upload Android artifacts
+      - name: Build signed release APK
+        env:
+          VALHALLA_BASE_URL: ${{ secrets.VALHALLA_BASE_URL }}
+        run: |
+          if [ -z "$VALHALLA_BASE_URL" ]; then
+            echo "Missing VALHALLA_BASE_URL secret (production routing server)"
+            exit 1
+          fi
+          flutter build apk --release --dart-define=VALHALLA_BASE_URL="$VALHALLA_BASE_URL"
+      - name: Build signed release AAB
+        env:
+          VALHALLA_BASE_URL: ${{ secrets.VALHALLA_BASE_URL }}
+        run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL="$VALHALLA_BASE_URL"
+      - name: Upload production artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-free-v0.8.0
+          name: masir-android-production-v1.0.0
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab

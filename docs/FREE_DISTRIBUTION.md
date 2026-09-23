@@ -1,25 +1,27 @@
-# مسیر رایگان است
+# مسیر — انتشار تولید
 
-مسیر (Masir) یک مسیریاب فارسی **رایگان برای کاربر نهایی** است.
+مسیر (Masir) یک مسیریاب فارسی **رایگان و قابل انتشار** است.
 
 ## تضمین‌ها
 - بدون حساب کاربری اجباری
 - بدون تبلیغ داخل صفحهٔ رانندگی
 - بدون قفل پولی برای مسیریابی پایه
 - بدون وابستگی اجباری به Google Maps Platform
-- دادهٔ جعلی/Demo برای ETA یا ترافیک نمایش داده نمی‌شود
+- بدون دادهٔ Demo/جعلی برای ETA یا ترافیک
+- امضای release با upload keystore (نه debug)
 
-## توزیع APK
-GitHub Actions روی `main` یک APK/AAB رایگان می‌سازد:
-- Artifact: `masir-android-free-vX.Y.Z`
-- Workflow: `.github/workflows/android-release.yml`
-
-برای گزارش جامعه، سرور اختیاری را جداگانه بالا بیاورید (`server/`) و با
-`REPORT_API_BASE_URL` به اپ بدهید. بدون آن هم گزارش‌ها روی دستگاه کار می‌کنند.
-
-## فایل انتشار فعلی
-- نام: `masir-0.8.0-release.apk`
-- نسخه: `0.8.0+9`
+## بسته‌های انتشار `1.0.0+10`
+- `masir-1.0.0-release.apk` — نصب مستقیم / انتشار خارج از فروشگاه
+- `masir-1.0.0-release.aab` — Google Play
 - package: `ir.sahand.masir`
-- امضا: موقتاً debug keystore (برای سایدلود/تست انتشار عمومی)
-- برای فروشگاه Google Play باید با keystore اختصاصی خودتان دوباره امضا شود.
+- امضا: upload keystore اختصاصی پروژه
+
+## الزامات سرور تولید
+قبل از ساخت نهایی باید این‌ها تنظیم شوند:
+- `VALHALLA_BASE_URL` — سرور Valhalla اختصاصی/تولید (نه instance عمومی آزمایشی)
+- اختیاری: `REPORT_API_BASE_URL` برای گزارش جامعه
+
+## GitHub Secrets برای CI
+- `MASIR_UPLOAD_KEYSTORE_BASE64`
+- `MASIR_KEY_PROPERTIES`
+- `VALHALLA_BASE_URL`

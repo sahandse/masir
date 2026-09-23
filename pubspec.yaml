@@ -1,7 +1,7 @@
 name: masir
 description: Persian-first free Waze-like navigation app built with Flutter, MapLibre and OpenStreetMap.
 publish_to: 'none'
-version: 0.8.0+9
+version: 1.0.0+10
 
 environment:
   sdk: '>=3.9.0 <4.0.0'

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -1799,16 +1800,18 @@ class _RouteCard extends StatelessWidget {
                       label: Text(startingNavigation ? 'در حال آماده‌سازی…' : 'شروع رانندگی با GPS'),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 46,
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: onSimulation,
-                      icon: const Icon(Icons.play_circle_outline_rounded),
-                      label: const Text('مرور مرحله‌به‌مرحله مسیر'),
+                  if (!kReleaseMode) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 46,
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: onSimulation,
+                        icon: const Icon(Icons.play_circle_outline_rounded),
+                        label: const Text('مرور مرحله‌به‌مرحله مسیر'),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
           ],
