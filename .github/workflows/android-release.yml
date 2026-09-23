@@ -38,12 +38,11 @@ jobs:
         run: |
           flutter create --platforms=android --org ir.sahand .
           rm -f test/widget_test.dart
-      - name: Apply supplied Masir launcher icon
+      - name: Apply Masir launcher icon
         run: |
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p "android/app/src/main/res/mipmap-${density}"
-            base64 --decode android_icon/masir_app_icon.b64 > "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
-          done
+          mkdir -p android/app/src/main/res/drawable
+          cp android_icon/masir_app_icon.xml android/app/src/main/res/drawable/masir_app_icon.xml
+          sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
       - name: Configure stable Android signing
         run: |
           echo '${{ secrets.MASIR_KEYSTORE_BASE64 }}' | base64 --decode > android/app/upload-keystore.jks
@@ -90,7 +89,7 @@ jobs:
           body: |
             مسیر ${{ github.ref_name }}
 
-            - لوگوی رسمی جدید مسیر
+            - لوگوی رسمی مسیر با Vector سازگار Android
             - Driver Mode مینیمال و حرفه‌ای
             - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
             - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
