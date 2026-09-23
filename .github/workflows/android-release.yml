@@ -40,9 +40,10 @@ jobs:
           rm -f test/widget_test.dart
       - name: Apply supplied Masir launcher icon
         run: |
-          mkdir -p android/app/src/main/res/drawable
-          cp android_icon/masir_app_icon.png android/app/src/main/res/drawable/masir_app_icon.png
-          sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-${density}"
+            base64 --decode android_icon/masir_app_icon.b64 > "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+          done
       - name: Configure stable Android signing
         run: |
           echo '${{ secrets.MASIR_KEYSTORE_BASE64 }}' | base64 --decode > android/app/upload-keystore.jks
