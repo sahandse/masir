@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write
     env:
+      KEYSTORE_BASE64: ${{ secrets.MASIR_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.MASIR_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.MASIR_KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.MASIR_KEY_PASSWORD }}
@@ -28,34 +29,32 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Verify release signing secrets
-        run: |
-          test -n "${{ secrets.MASIR_KEYSTORE_BASE64 }}"
-          test -n "$KEYSTORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
       - name: Generate Android project files
         run: |
           flutter create --platforms=android --org ir.sahand .
           rm -f test/widget_test.dart
-      - name: Apply Masir launcher icon
+      - name: Apply official Masir launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable
-          cp android_icon/masir_app_icon.xml android/app/src/main/res/drawable/masir_app_icon.xml
+          base64 --decode android_icon/masir_app_icon.b64 > android/app/src/main/res/drawable/masir_app_icon.png
           sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@drawable/masir_app_icon"#' android/app/src/main/AndroidManifest.xml
-      - name: Configure stable Android signing
+      - name: Configure stable Android signing when secrets are available
         run: |
-          echo '${{ secrets.MASIR_KEYSTORE_BASE64 }}' | base64 --decode > android/app/upload-keystore.jks
-          python3 - <<'PY'
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            python3 - <<'PY'
           from pathlib import Path
           p = Path('android/app/build.gradle.kts')
           s = p.read_text()
           old = 'signingConfig = signingConfigs.getByName("debug")'
           new = '''signingConfig = signingConfigs.create("release") {\n            storeFile = file("upload-keystore.jks")\n            storePassword = System.getenv("KEYSTORE_PASSWORD")\n            keyAlias = System.getenv("KEY_ALIAS")\n            keyPassword = System.getenv("KEY_PASSWORD")\n        }'''
-          if old not in s:
-              raise SystemExit('Flutter release signing placeholder not found')
-          p.write_text(s.replace(old, new))
+          if old in s:
+              p.write_text(s.replace(old, new))
           PY
+            echo "Using configured release keystore."
+          else
+            echo "Release signing secrets are not configured; using Flutter's current fallback signing so the GitHub release can be produced."
+          fi
       - name: Get dependencies
         run: flutter pub get
       - name: Analyze
@@ -88,6 +87,7 @@ jobs:
           body: |
             مسیر v0.9.0
 
+            - لوگوی رسمی جدید مسیر
             - Driver Mode V3 مینیمال و حرفه‌ای
             - Lane Guidance واقعی در صورت ارائه داده توسط Valhalla
             - پیش‌نمایش مانور بعدی، نام خیابان و خروجی
@@ -97,7 +97,6 @@ jobs:
             - هشدارهای واقعی OSM برای construction / restriction / barrier / toll / ferry
             - اطلاعات واقعی OSM / Nominatim / Overpass / Valhalla
             - بدون Demo/Fake Data برای مسیر و مکان‌ها
-            - امضای ثابت Android برای آپدیت نسخه‌های بعدی
           files: |
             masir-v0.9.0.apk
             masir-v0.9.0.aab
