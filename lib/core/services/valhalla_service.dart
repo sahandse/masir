@@ -1,6 +1,16 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
+class RouteLane {
+  const RouteLane({
+    required this.directions,
+    required this.active,
+  });
+
+  final List<String> directions;
+  final bool active;
+}
+
 class RouteManeuver {
   const RouteManeuver({
     required this.instruction,
@@ -10,6 +20,12 @@ class RouteManeuver {
     required this.endShapeIndex,
     required this.type,
     required this.lanes,
+    this.streetNames = const [],
+    this.beginStreetNames = const [],
+    this.exitNumber,
+    this.exitBranch,
+    this.exitToward,
+    this.exitName,
   });
 
   final String instruction;
@@ -18,7 +34,29 @@ class RouteManeuver {
   final int beginShapeIndex;
   final int endShapeIndex;
   final int type;
-  final List<String> lanes;
+  final List<RouteLane> lanes;
+  final List<String> streetNames;
+  final List<String> beginStreetNames;
+  final String? exitNumber;
+  final String? exitBranch;
+  final String? exitToward;
+  final String? exitName;
+
+  String? get primaryStreetName {
+    if (streetNames.isNotEmpty) return streetNames.first;
+    if (beginStreetNames.isNotEmpty) return beginStreetNames.first;
+    return null;
+  }
+
+  String? get exitLabel {
+    final parts = <String>[
+      if (exitNumber?.trim().isNotEmpty == true) 'خروجی $exitNumber',
+      if (exitBranch?.trim().isNotEmpty == true) exitBranch!,
+      if (exitToward?.trim().isNotEmpty == true) 'به سمت $exitToward',
+      if (exitName?.trim().isNotEmpty == true) exitName!,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
 }
 
 class RouteResult {
@@ -58,7 +96,8 @@ class ValhallaService {
     final body = {
       'locations': [
         {'lat': from.latitude, 'lon': from.longitude},
-        for (final via in viaPoints) {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
+        for (final via in viaPoints)
+          {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
         {'lat': to.latitude, 'lon': to.longitude},
       ],
       'costing': 'auto',
@@ -103,6 +142,7 @@ class ValhallaService {
 
       for (final raw in rawManeuvers) {
         final item = raw as Map<String, dynamic>;
+        final sign = item['sign'] as Map<String, dynamic>?;
         maneuvers.add(
           RouteManeuver(
             instruction: (item['instruction'] as String?)?.trim().isNotEmpty == true
@@ -110,12 +150,18 @@ class ValhallaService {
                 : 'ادامه مسیر',
             kilometers: (item['length'] as num?)?.toDouble() ?? 0,
             seconds: (item['time'] as num?)?.toDouble() ?? 0,
-            beginShapeIndex: pointOffset + ((item['begin_shape_index'] as num?)?.toInt() ?? 0),
-            endShapeIndex: pointOffset + ((item['end_shape_index'] as num?)?.toInt() ?? 0),
+            beginShapeIndex:
+                pointOffset + ((item['begin_shape_index'] as num?)?.toInt() ?? 0),
+            endShapeIndex:
+                pointOffset + ((item['end_shape_index'] as num?)?.toInt() ?? 0),
             type: (item['type'] as num?)?.toInt() ?? 0,
-            lanes: ((item['lanes'] as List<dynamic>?) ?? const [])
-                .map((e) => e.toString())
-                .toList(growable: false),
+            lanes: _parseLanes(item['lanes']),
+            streetNames: _stringList(item['street_names']),
+            beginStreetNames: _stringList(item['begin_street_names']),
+            exitNumber: _signText(sign?['exit_number_elements']),
+            exitBranch: _signText(sign?['exit_branch_elements']),
+            exitToward: _signText(sign?['exit_toward_elements']),
+            exitName: _signText(sign?['exit_name_elements']),
           ),
         );
       }
@@ -141,9 +187,30 @@ class ValhallaService {
     double useFerries = 0.5,
   }) async {
     final results = await Future.wait([
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways < 0.5 ? useHighways : 0.35, useTolls: useTolls, useFerries: useFerries),
-      route(from, to, viaPoints: viaPoints, useHighways: useHighways, useTolls: useTolls < 0.5 ? useTolls : 0.0, useFerries: useFerries),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        useHighways: useHighways,
+        useTolls: useTolls,
+        useFerries: useFerries,
+      ),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        useHighways: useHighways < 0.5 ? useHighways : 0.35,
+        useTolls: useTolls,
+        useFerries: useFerries,
+      ),
+      route(
+        from,
+        to,
+        viaPoints: viaPoints,
+        useHighways: useHighways,
+        useTolls: useTolls < 0.5 ? useTolls : 0.0,
+        useFerries: useFerries,
+      ),
     ]);
 
     final unique = <RouteResult>[];
@@ -154,6 +221,51 @@ class ValhallaService {
       if (!duplicate) unique.add(candidate);
     }
     return unique;
+  }
+
+  List<RouteLane> _parseLanes(dynamic raw) {
+    final list = raw as List<dynamic>?;
+    if (list == null) return const [];
+
+    return list.map((entry) {
+      if (entry is Map<String, dynamic>) {
+        final directions = _stringList(entry['directions']);
+        final active = entry['active'] == true ||
+            entry['state'] == 'active' ||
+            entry['state'] == 'valid';
+        return RouteLane(directions: directions, active: active);
+      }
+      final text = entry.toString().trim();
+      return RouteLane(
+        directions: text.isEmpty ? const [] : [text],
+        active: false,
+      );
+    }).toList(growable: false);
+  }
+
+  List<String> _stringList(dynamic raw) {
+    final list = raw as List<dynamic>?;
+    if (list == null) return const [];
+    return list
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String? _signText(dynamic raw) {
+    final list = raw as List<dynamic>?;
+    if (list == null || list.isEmpty) return null;
+    final texts = <String>[];
+    for (final entry in list) {
+      if (entry is Map<String, dynamic>) {
+        final text = (entry['text'] ?? entry['value'])?.toString().trim();
+        if (text?.isNotEmpty == true) texts.add(text!);
+      } else {
+        final text = entry.toString().trim();
+        if (text.isNotEmpty) texts.add(text);
+      }
+    }
+    return texts.isEmpty ? null : texts.join(' / ');
   }
 
   List<LatLng> _decodePolyline6(String encoded) {

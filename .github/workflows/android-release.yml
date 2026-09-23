@@ -36,38 +36,35 @@ jobs:
         run: flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
       - name: Rename release files
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.7.0.apk
-          cp build/app/outputs/bundle/release/app-release.aab masir-v0.7.0.aab
+          cp build/app/outputs/flutter-apk/app-release.apk masir-v0.8.0.apk
+          cp build/app/outputs/bundle/release/app-release.aab masir-v0.8.0.aab
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: masir-android-v0.7.0
+          name: masir-android-v0.8.0
           path: |
-            masir-v0.7.0.apk
-            masir-v0.7.0.aab
+            masir-v0.8.0.apk
+            masir-v0.8.0.aab
           if-no-files-found: error
       - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.7.0
-          name: Masir v0.7.0
+          tag_name: v0.8.0
+          name: Masir v0.8.0
           target_commitish: main
           generate_release_notes: true
           body: |
-            مسیر v0.7.0
+            مسیر v0.8.0
 
+            - Lane Guidance واقعی از داده Valhalla در صورت ارائه توسط مسیر
+            - نمایش نام خیابان بعدی و اطلاعات خروجی
+            - آیکون‌های حرفه‌ای برای پیچ، خروجی، میدان و ادامه مسیر
+            - Navigation Banner جدید، مینیمال و مناسب رانندگی
+            - ETA، فاصله باقی‌مانده و سرعت زنده
             - دیتای واقعی OpenStreetMap / Nominatim / Overpass
-            - مسیریابی واقعی Valhalla
-            - Driver Mode با GPS زنده
-            - ETA و فاصله زنده تا مانور بعدی
-            - راهنمای صوتی فارسی ۸۰۰/۳۰۰/۱۰۰ متر و زمان پیچ
-            - تشخیص خروج از مسیر و Re-route واقعی
-            - تشخیص رسیدن به مقصد
-            - POIهای واقعی اطراف
-            - نام جاده، محدودیت سرعت و دوربین سرعت در صورت وجود داده OSM
-
-            هیچ Demo/Fake Data برای مسیریابی و مکان‌ها استفاده نمی‌شود.
+            - مسیریابی و Re-route واقعی Valhalla
+            - بدون Demo/Fake Data برای مسیر و مکان‌ها
           files: |
-            masir-v0.7.0.apk
-            masir-v0.7.0.aab
+            masir-v0.8.0.apk
+            masir-v0.8.0.aab
