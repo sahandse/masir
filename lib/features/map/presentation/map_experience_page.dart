@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_progress_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
+import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
@@ -22,6 +23,7 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
   final _location = LocationService();
   final _osm = OsmDataService();
   final _session = NavigationSessionService();
+  final _offlineRoutes = OfflineRouteStoreService();
   final _routing = ValhallaService();
   final _progressService = NavigationProgressService();
   final _persian = PersianGuidanceService();
@@ -136,6 +138,11 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
           viaPoints: session.viaPoints.map((e) => e.position).toList(),
           mode: session.mode,
         );
+        await _offlineRoutes.save(
+          destination: session.destination.position,
+          mode: session.mode,
+          route: route,
+        );
         if (!mounted || _activeSession == null) return;
         setState(() {
           _liveRoute = route;
@@ -144,7 +151,20 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
           _spokenStages.clear();
         });
       } catch (_) {
-        return;
+        final savedRoute = await _offlineRoutes.loadForTrip(
+          current: current,
+          destination: session.destination.position,
+          mode: session.mode,
+        );
+        if (savedRoute == null) return;
+        route = savedRoute;
+        if (!mounted || _activeSession == null) return;
+        setState(() {
+          _liveRoute = savedRoute;
+          _maneuverIndex = 0;
+          _progress = null;
+          _spokenStages.clear();
+        });
       } finally {
         if (mounted) setState(() => _routingNow = false);
       }
@@ -235,6 +255,11 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
         session.destination.position,
         viaPoints: session.viaPoints.map((e) => e.position).toList(),
         mode: session.mode,
+      );
+      await _offlineRoutes.save(
+        destination: session.destination.position,
+        mode: session.mode,
+        route: newRoute,
       );
       if (!mounted || _activeSession == null) return;
       setState(() {
