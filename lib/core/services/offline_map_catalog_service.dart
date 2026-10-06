@@ -45,12 +45,14 @@ class OfflineRegionState {
     required this.file,
     required this.installed,
     required this.updateAvailable,
+    required this.active,
   });
 
   final OfflineRegion region;
   final File file;
   final bool installed;
   final bool updateAvailable;
+  final bool active;
 }
 
 class OfflineMapCatalogService {
@@ -71,6 +73,7 @@ class OfflineMapCatalogService {
 
   static const catalogUrl =
       String.fromEnvironment('MASIR_OFFLINE_CATALOG_URL');
+  static const _activeRegionKey = '__active_region_id';
 
   bool get isConfigured => catalogUrl.trim().isNotEmpty;
 
@@ -95,19 +98,25 @@ class OfflineMapCatalogService {
 
     final dir = await _mapsDirectory();
     final manifest = await _readManifest(dir);
-    return [
-      for (final region in regions)
+    final activeId = manifest[_activeRegionKey] as String?;
+    final states = <OfflineRegionState>[];
+    for (final region in regions) {
+      final file = File('${dir.path}/${region.fileName}');
+      final installed = await file.exists();
+      states.add(
         OfflineRegionState(
           region: region,
-          file: File('${dir.path}/${region.fileName}'),
-          installed: await File('${dir.path}/${region.fileName}').exists(),
+          file: file,
+          installed: installed,
           updateAvailable:
               (manifest[region.id] as Map<String, dynamic>?)?['version'] != null &&
-                  (manifest[region.id]
-                          as Map<String, dynamic>)['version'] !=
+                  (manifest[region.id] as Map<String, dynamic>)['version'] !=
                       region.version,
+          active: installed && activeId == region.id,
         ),
-    ];
+      );
+    }
+    return states;
   }
 
   Future<void> download(
@@ -160,6 +169,42 @@ class OfflineMapCatalogService {
     if (await target.exists()) await target.delete();
     final manifest = await _readManifest(dir);
     manifest.remove(region.id);
+    if (manifest[_activeRegionKey] == region.id) {
+      manifest.remove(_activeRegionKey);
+    }
+    await _writeManifest(dir, manifest);
+  }
+
+  Future<void> setActive(OfflineRegion region) async {
+    final dir = await _mapsDirectory();
+    final target = File('${dir.path}/${region.fileName}');
+    if (!await target.exists()) {
+      throw StateError('Offline map is not installed: ${region.id}');
+    }
+    final manifest = await _readManifest(dir);
+    manifest[_activeRegionKey] = region.id;
+    await _writeManifest(dir, manifest);
+  }
+
+  Future<String?> activeMapPath() async {
+    final dir = await _mapsDirectory();
+    final manifest = await _readManifest(dir);
+    final activeId = manifest[_activeRegionKey] as String?;
+    if (activeId == null || activeId.isEmpty) return null;
+
+    final value = manifest[activeId];
+    if (value is! Map<String, dynamic>) return null;
+    final fileName = value['file_name'] as String?;
+    if (fileName == null || fileName.isEmpty) return null;
+
+    final file = File('${dir.path}/$fileName');
+    return await file.exists() ? file.path : null;
+  }
+
+  Future<void> clearActive() async {
+    final dir = await _mapsDirectory();
+    final manifest = await _readManifest(dir);
+    manifest.remove(_activeRegionKey);
     await _writeManifest(dir, manifest);
   }
 
