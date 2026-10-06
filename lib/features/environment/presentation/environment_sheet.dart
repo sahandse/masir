@@ -31,7 +31,7 @@ class _EnvironmentSheetState extends State<EnvironmentSheet> {
   }
 
   String _temperature(double? value) =>
-      value == null ? '—' : '\${value.round()}°';
+      value == null ? '—' : '${value.round()}°';
 
   String _number(double? value) =>
       value == null ? '—' : value.round().toString();
