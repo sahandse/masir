@@ -46,7 +46,7 @@ jobs:
         with:
           tag_name: v1.2.0-unsigned
           name: Masir v1.2.0 unsigned build
-          target_commitish: \${{ github.sha }}
+          target_commitish: ${{ github.sha }}
           prerelease: true
           body: Temporary unsigned build used only for local signing.
           files: |
