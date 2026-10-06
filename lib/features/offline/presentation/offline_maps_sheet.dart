@@ -33,6 +33,15 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
     return '${(mb / 1024).toStringAsFixed(1)} GB';
   }
 
+  String _date(DateTime value) {
+    if (value.millisecondsSinceEpoch == 0) return 'تاریخ نامشخص';
+    final local = value.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    return '$y/$m/$d';
+  }
+
   Future<void> _download(OfflineRegion region) async {
     setState(() {
       _busy.add(region.id);
@@ -82,6 +91,15 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
         const SnackBar(content: Text('فعال‌سازی نقشه آفلاین انجام نشد.')),
       );
     }
+  }
+
+  Future<void> _useOnlineMap() async {
+    await _service.clearActive();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('نقشه آنلاین فعال شد.')),
+    );
+    _reload();
   }
 
   Future<void> _remove(OfflineRegion region) async {
@@ -159,10 +177,54 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
                     'دانلود منطقه، بررسی SHA-256 و بروزرسانی نسخه',
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      leading: const Icon(Icons.public_rounded),
+                      title: const Text('نقشه آنلاین'),
+                      subtitle: const Text('OpenStreetMap با اتصال اینترنت'),
+                      trailing: items.any((e) => e.active)
+                          ? TextButton(
+                              onPressed: _useOnlineMap,
+                              child: const Text('فعال کن'),
+                            )
+                          : const Chip(
+                              avatar: Icon(Icons.check_rounded, size: 16),
+                              label: Text('فعال'),
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: items.isEmpty
-                      ? const Center(
-                          child: Text('در Catalog فعلی منطقه‌ای منتشر نشده است.'),
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(28),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.map_outlined,
+                                  size: 46,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'هنوز بسته آفلاین منتشر نشده است.',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'به محض انتشار بسته واقعی OSM، همین‌جا نمایش داده می‌شود.',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
@@ -176,16 +238,18 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
 
                             return ListTile(
                               leading: Icon(
-                                state.installed
+                                state.active
                                     ? Icons.offline_pin_rounded
-                                    : Icons.map_outlined,
+                                    : state.installed
+                                        ? Icons.download_done_rounded
+                                        : Icons.map_outlined,
                               ),
                               title: Text(region.title),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'نسخه ${region.version} · ${_size(region.bytes)}'
+                                    'نسخه ${region.version} · ${_size(region.bytes)} · ${_date(region.updatedAt)}'
                                     '${state.active ? ' · فعال' : ''}'
                                     '${state.updateAvailable ? ' · بروزرسانی موجود' : ''}',
                                   ),
