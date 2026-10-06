@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_progress_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
+import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/route_awareness_service.dart';
@@ -28,6 +29,7 @@ class _NavigationExperienceV3PageState
   final _controller = NavigationController();
   final _location = LocationService();
   final _session = NavigationSessionService();
+  final _offlineRoutes = OfflineRouteStoreService();
   final _routing = ValhallaService();
   final _progressService = NavigationProgressService();
   final _persian = PersianGuidanceService();
@@ -113,11 +115,26 @@ class _NavigationExperienceV3PageState
           viaPoints: session.viaPoints.map((e) => e.position).toList(),
           mode: session.mode,
         );
+        await _offlineRoutes.save(
+          destination: session.destination.position,
+          mode: session.mode,
+          route: route,
+        );
         if (!mounted || _controller.state.session == null) return;
         _controller.setRoute(route);
       } catch (_) {
-        _controller.setRouting(false);
-        return;
+        final savedRoute = await _offlineRoutes.loadForTrip(
+          current: current,
+          destination: session.destination.position,
+          mode: session.mode,
+        );
+        if (savedRoute == null) {
+          _controller.setRouting(false);
+          return;
+        }
+        route = savedRoute;
+        if (!mounted || _controller.state.session == null) return;
+        _controller.setRoute(savedRoute);
       }
     }
 
@@ -209,6 +226,11 @@ class _NavigationExperienceV3PageState
         session.destination.position,
         viaPoints: session.viaPoints.map((e) => e.position).toList(),
         mode: session.mode,
+      );
+      await _offlineRoutes.save(
+        destination: session.destination.position,
+        mode: session.mode,
+        route: newRoute,
       );
       if (!mounted || _controller.state.session == null) return;
       _spokenStages.clear();
