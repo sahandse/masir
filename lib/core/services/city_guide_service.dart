@@ -27,6 +27,7 @@ class CityGuidePlace {
     required this.position,
     this.openingHours,
     this.wikipedia,
+    this.offline = false,
   });
 
   final String name;
@@ -35,6 +36,7 @@ class CityGuidePlace {
   final LatLng position;
   final String? openingHours;
   final String? wikipedia;
+  final bool offline;
 }
 
 class CityGuideService {
@@ -73,7 +75,13 @@ class CityGuideService {
         'nwr(around:$radiusMeters,$lat,$lon)["shop"~"supermarket|mall|convenience"];'
         ');out center tags;';
 
-    final response = await _post(q);
+    Response<Map<String, dynamic>> response;
+    try {
+      response = await _post(q);
+    } catch (_) {
+      return _offlineFallback(center, radiusMeters: radiusMeters);
+    }
+
     final elements =
         (response.data?['elements'] as List<dynamic>?) ?? const <dynamic>[];
     final out = <CityGuidePlace>[];
@@ -126,6 +134,52 @@ class CityGuideService {
       ),
     );
     return items;
+  }
+
+  Future<List<CityGuidePlace>> _offlineFallback(
+    LatLng center, {
+    required int radiusMeters,
+  }) async {
+    final cached = await _offlineCache.nearby(
+      center,
+      radiusMeters: radiusMeters.toDouble(),
+      limit: 160,
+    );
+    return cached
+        .map(
+          (place) {
+            final category = _categoryFromSubtitle(place.subtitle);
+            return CityGuidePlace(
+              name: place.title,
+              category: category,
+              section: _sectionFor(category),
+              position: place.position,
+              offline: true,
+            );
+          },
+        )
+        .toList(growable: false);
+  }
+
+  String _categoryFromSubtitle(String subtitle) {
+    final value = subtitle.toLowerCase();
+    if (value.contains('رستوران')) return 'restaurant';
+    if (value.contains('کافه')) return 'cafe';
+    if (value.contains('هتل')) return 'hotel';
+    if (value.contains('هاستل')) return 'hostel';
+    if (value.contains('مهمان')) return 'guest_house';
+    if (value.contains('بیمارستان')) return 'hospital';
+    if (value.contains('درمانگاه')) return 'clinic';
+    if (value.contains('داروخانه')) return 'pharmacy';
+    if (value.contains('پمپ')) return 'fuel';
+    if (value.contains('پارکینگ')) return 'parking';
+    if (value.contains('فروشگاه') || value.contains('سوپر')) {
+      return 'convenience';
+    }
+    if (value.contains('مرکز خرید')) return 'mall';
+    if (value.contains('پارک')) return 'park';
+    if (value.contains('موزه')) return 'museum';
+    return 'attraction';
   }
 
   Future<Response<Map<String, dynamic>>> _post(String query) async {
