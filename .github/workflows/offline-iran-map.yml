@@ -1,4 +1,4 @@
-name: Build Iran Offline Map
+name: Build Iran Offline Maps
 
 on:
   workflow_dispatch:
@@ -36,61 +36,98 @@ jobs:
             https://download.geofabrik.de/asia/iran-shortbread-1.0.mbtiles
           test -s iran-shortbread-1.0.mbtiles
 
-      - name: Convert and verify PMTiles
+      - name: Convert full Iran map
         run: |
           pmtiles convert iran-shortbread-1.0.mbtiles iran-shortbread-1.0.pmtiles
           pmtiles verify iran-shortbread-1.0.pmtiles
-          sha256sum iran-shortbread-1.0.pmtiles | tee iran-shortbread-1.0.pmtiles.sha256
 
-      - name: Prepare metadata
+      - name: Extract major city packages
+        run: |
+          # BBoxes intentionally include the surrounding metropolitan area.
+          pmtiles extract iran-shortbread-1.0.pmtiles tehran.pmtiles --bbox=50.90,35.35,51.85,36.10
+          pmtiles extract iran-shortbread-1.0.pmtiles mashhad.pmtiles --bbox=59.10,35.95,60.20,36.70
+          pmtiles extract iran-shortbread-1.0.pmtiles isfahan.pmtiles --bbox=51.20,32.35,52.10,33.05
+          pmtiles extract iran-shortbread-1.0.pmtiles shiraz.pmtiles --bbox=52.10,29.20,53.00,30.10
+          pmtiles extract iran-shortbread-1.0.pmtiles tabriz.pmtiles --bbox=45.80,37.75,46.65,38.45
+          for f in tehran mashhad isfahan shiraz tabriz; do
+            pmtiles verify "$f.pmtiles"
+          done
+
+      - name: Prepare checksums and metadata
         id: meta
         run: |
           VERSION="$(date -u +%Y.%m.%d)"
           UPDATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          BYTES="$(stat -c%s iran-shortbread-1.0.pmtiles)"
-          SHA="$(cut -d' ' -f1 iran-shortbread-1.0.pmtiles.sha256)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "updated_at=$UPDATED_AT" >> "$GITHUB_OUTPUT"
-          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          for f in iran-shortbread-1.0 tehran mashhad isfahan shiraz tabriz; do
+            sha256sum "$f.pmtiles" > "$f.pmtiles.sha256"
+          done
 
-      - name: Publish/update offline map release
+      - name: Publish/update offline map data release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="offline-maps-iran"
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "Masir Offline Maps — Iran" \
-              --notes "Iran Shortbread vector map derived from OpenStreetMap data distributed by Geofabrik. © OpenStreetMap contributors."
+            gh release create "$TAG" \
+              --title "Masir Offline Maps — Iran" \
+              --notes "Real OpenStreetMap Shortbread vector data distributed by Geofabrik. © OpenStreetMap contributors."
           gh release upload "$TAG" \
-            iran-shortbread-1.0.pmtiles \
-            iran-shortbread-1.0.pmtiles.sha256 \
+            iran-shortbread-1.0.pmtiles iran-shortbread-1.0.pmtiles.sha256 \
+            tehran.pmtiles tehran.pmtiles.sha256 \
+            mashhad.pmtiles mashhad.pmtiles.sha256 \
+            isfahan.pmtiles isfahan.pmtiles.sha256 \
+            shiraz.pmtiles shiraz.pmtiles.sha256 \
+            tabriz.pmtiles tabriz.pmtiles.sha256 \
             --clobber
 
-      - name: Update offline catalog
+      - name: Update app catalog
+        env:
+          MAP_VERSION: ${{ steps.meta.outputs.version }}
+          UPDATED_AT: ${{ steps.meta.outputs.updated_at }}
         run: |
           mkdir -p offline
           python3 - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
 
+          version = os.environ["MAP_VERSION"]
+          updated_at = os.environ["UPDATED_AT"]
+          base = "https://github.com/sahandse/masir/releases/download/offline-maps-iran"
+
+          specs = [
+              ("iran", "ایران", "iran-shortbread-1.0.pmtiles"),
+              ("tehran", "تهران و اطراف", "tehran.pmtiles"),
+              ("mashhad", "مشهد و اطراف", "mashhad.pmtiles"),
+              ("isfahan", "اصفهان و اطراف", "isfahan.pmtiles"),
+              ("shiraz", "شیراز و اطراف", "shiraz.pmtiles"),
+              ("tabriz", "تبریز و اطراف", "tabriz.pmtiles"),
+          ]
+
+          regions = []
+          for region_id, title, file_name in specs:
+              path = Path(file_name)
+              sha = hashlib.sha256(path.read_bytes()).hexdigest()
+              regions.append({
+                  "id": region_id,
+                  "title": title,
+                  "file_name": file_name,
+                  "download_url": f"{base}/{file_name}",
+                  "bytes": path.stat().st_size,
+                  "sha256": sha,
+                  "version": version,
+                  "updated_at": updated_at,
+              })
+
           data = {
               "schema": 1,
               "source": "OpenStreetMap / Geofabrik Shortbread",
-              "updated_at": "${{ steps.meta.outputs.updated_at }}",
-              "regions": [
-                  {
-                      "id": "iran",
-                      "title": "ایران",
-                      "file_name": "iran-shortbread-1.0.pmtiles",
-                      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/iran-shortbread-1.0.pmtiles",
-                      "bytes": int("${{ steps.meta.outputs.bytes }}"),
-                      "sha256": "${{ steps.meta.outputs.sha }}",
-                      "version": "${{ steps.meta.outputs.version }}",
-                      "updated_at": "${{ steps.meta.outputs.updated_at }}"
-                  }
-              ]
+              "attribution": "© OpenStreetMap contributors",
+              "updated_at": updated_at,
+              "regions": regions,
           }
           Path("offline/catalog.json").write_text(
               json.dumps(data, ensure_ascii=False, indent=2) + "\n",
