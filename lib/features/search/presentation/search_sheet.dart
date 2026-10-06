@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:masir/features/search/data/nominatim_service.dart';
 import 'package:masir/core/services/offline_place_cache_service.dart';
 import 'package:masir/features/search/models/place_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 class SearchSheet extends StatefulWidget {
   const SearchSheet({super.key, required this.onSelected});
@@ -17,16 +18,19 @@ class _SearchSheetState extends State<SearchSheet> {
   final _controller = TextEditingController();
   final _service = NominatimService();
   final _offline = OfflinePlaceCacheService();
+  final _speech = SpeechToText();
   List<PlaceResult> _items = const [];
   bool _loading = false;
   String? _error;
   bool _offlineOnly = false;
+  bool _listening = false;
   Timer? _debounce;
   int _requestId = 0;
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _speech.stop();
     _controller.dispose();
     super.dispose();
   }
@@ -46,6 +50,74 @@ class _SearchSheetState extends State<SearchSheet> {
     _debounce = Timer(const Duration(milliseconds: 700), () {
       _submit(unfocus: false);
     });
+  }
+
+  Future<void> _toggleVoiceSearch() async {
+    if (_listening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() => _listening = false);
+      if (_controller.text.trim().length >= 2) {
+        await _submit(unfocus: false);
+      }
+      return;
+    }
+
+    final available = await _speech.initialize(
+      onStatus: (status) {
+        if (!mounted) return;
+        if (status == 'done' || status == 'notListening') {
+          setState(() => _listening = false);
+        }
+      },
+      onError: (_) {
+        if (!mounted) return;
+        setState(() => _listening = false);
+      },
+    );
+
+    if (!available) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('جستجوی صوتی روی این دستگاه در دسترس نیست یا اجازه میکروفون داده نشده است.'),
+        ),
+      );
+      return;
+    }
+
+    final locales = await _speech.locales();
+    String? localeId;
+    for (final locale in locales) {
+      final id = locale.localeId.toLowerCase();
+      if (id.startsWith('fa')) {
+        localeId = locale.localeId;
+        break;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _listening = true;
+      _error = null;
+    });
+
+    await _speech.listen(
+      localeId: localeId,
+      listenMode: ListenMode.search,
+      onResult: (result) {
+        final words = result.recognizedWords.trim();
+        if (words.isEmpty || !mounted) return;
+        _controller
+          ..text = words
+          ..selection = TextSelection.collapsed(offset: words.length);
+        _onChanged(words);
+        if (result.finalResult) {
+          setState(() => _listening = false);
+          unawaited(_submit(unfocus: false));
+        }
+      },
+    );
   }
 
   Future<void> _submit({bool unfocus = true}) async {
@@ -133,9 +205,23 @@ class _SearchSheetState extends State<SearchSheet> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                       )
-                    : IconButton(
-                        onPressed: () => _submit(),
-                        icon: const Icon(Icons.arrow_back_rounded),
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: _listening ? 'توقف شنیدن' : 'جستجوی صوتی فارسی',
+                            onPressed: _toggleVoiceSearch,
+                            icon: Icon(
+                              _listening
+                                  ? Icons.mic_rounded
+                                  : Icons.mic_none_rounded,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => _submit(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                        ],
                       ),
               ),
             ),
