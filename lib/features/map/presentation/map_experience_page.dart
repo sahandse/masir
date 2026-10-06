@@ -134,6 +134,7 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
           current,
           session.destination.position,
           viaPoints: session.viaPoints.map((e) => e.position).toList(),
+          mode: session.mode,
         );
         if (!mounted || _activeSession == null) return;
         setState(() {
@@ -233,6 +234,7 @@ class _MapExperiencePageState extends State<MapExperiencePage> {
         current,
         session.destination.position,
         viaPoints: session.viaPoints.map((e) => e.position).toList(),
+        mode: session.mode,
       );
       if (!mounted || _activeSession == null) return;
       setState(() {
