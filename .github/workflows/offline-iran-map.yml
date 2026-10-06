@@ -31,6 +31,7 @@ jobs:
       - name: Install PMTiles CLI
         run: |
           go install github.com/protomaps/go-pmtiles@latest
+          ln -sf "$HOME/go/bin/go-pmtiles" "$HOME/go/bin/pmtiles"
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Download Iran Shortbread MBTiles from Geofabrik
