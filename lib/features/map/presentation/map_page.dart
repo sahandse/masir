@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_preferences_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
+import 'package:masir/core/services/offline_map_catalog_service.dart';
 import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
@@ -18,6 +19,7 @@ import 'package:masir/features/search/models/place_result.dart';
 import 'package:masir/features/search/presentation/search_sheet.dart';
 import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
+import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -40,6 +42,7 @@ class _MapPageState extends State<MapPage> {
   final _reports = ReportService();
   final _saved = SavedPlacesService();
   final _voice = VoiceGuidanceService();
+  final _offlineMaps = OfflineMapCatalogService();
   final _distance = const Distance();
 
   PlaceResult? _origin;
@@ -58,6 +61,7 @@ class _MapPageState extends State<MapPage> {
   NavigationPreferences _navPrefs = const NavigationPreferences();
   DateTime? _lastRerouteAt;
   DateTime? _lastRoadInfoAt;
+  String? _offlineMapPath;
 
   bool _routingNow = false;
   bool _startingNavigation = false;
@@ -72,6 +76,7 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _loadNavigationPreferences();
+    _loadOfflineMap();
     _restoreNavigationSession();
   }
 
@@ -109,6 +114,12 @@ class _MapPageState extends State<MapPage> {
     await _navPrefsService.save(value);
     if (!mounted) return;
     setState(() => _navPrefs = value);
+  }
+
+  Future<void> _loadOfflineMap() async {
+    final path = await _offlineMaps.activeMapPath();
+    if (!mounted) return;
+    setState(() => _offlineMapPath = path);
   }
 
   @override
@@ -893,13 +904,14 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  void _showOfflineMaps() {
-    showModalBottomSheet<void>(
+  Future<void> _showOfflineMaps() async {
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => const OfflineMapsSheet(),
     );
+    await _loadOfflineMap();
   }
 
   void _showToolsSheet() {
@@ -1100,10 +1112,16 @@ class _MapPageState extends State<MapPage> {
               onTap: (_, point) => _selectRouteFromMap(point),
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'ir.sahand.masir',
-              ),
+              if (_offlineMapPath != null)
+                OfflinePmTilesLayer(
+                  key: ValueKey(_offlineMapPath),
+                  path: _offlineMapPath!,
+                )
+              else
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'ir.sahand.masir',
+                ),
               if (_alternatives.isNotEmpty)
                 PolylineLayer(
                   polylines: [
