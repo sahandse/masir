@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_preferences_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
@@ -12,6 +13,9 @@ import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
+import 'package:masir/core/services/traffic_zone_service.dart';
+import 'package:masir/core/services/traffic_service.dart';
+import 'package:masir/core/services/map_feedback_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
@@ -20,6 +24,11 @@ import 'package:masir/features/search/presentation/search_sheet.dart';
 import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
+import 'package:masir/features/environment/presentation/environment_sheet.dart';
+import 'package:masir/features/place/presentation/place_details_sheet.dart';
+import 'package:masir/features/map_feedback/presentation/map_feedback_sheet.dart';
+import 'package:masir/features/transit/presentation/transit_nearby_sheet.dart';
+import 'package:masir/features/route/presentation/along_route_poi_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -40,6 +49,9 @@ class _MapPageState extends State<MapPage> {
   final _routing = ValhallaService();
   final _osm = OsmDataService();
   final _reports = ReportService();
+  final _trafficZoneService = TrafficZoneService();
+  final _traffic = TrafficService();
+  final _mapFeedback = MapFeedbackService();
   final _saved = SavedPlacesService();
   final _voice = VoiceGuidanceService();
   final _offlineMaps = OfflineMapCatalogService();
@@ -52,6 +64,14 @@ class _MapPageState extends State<MapPage> {
   List<RouteResult> _alternatives = const [];
   int _routeIndex = 0;
   List<OsmPoi> _pois = const [];
+  List<RoadReport> _roadReports = const [];
+  int _pendingReportCount = 0;
+  DateTime? _lastReportRefreshAt;
+  List<TrafficZone> _trafficZones = const [];
+  List<TrafficSegment> _trafficSegments = const [];
+  DateTime? _lastTrafficAt;
+  String? _activeTrafficZoneId;
+  int _pendingMapFeedback = 0;
   LatLng? _gpsPoint;
   double _speedKmh = 0;
   int? _maxSpeedKmh;
@@ -78,6 +98,9 @@ class _MapPageState extends State<MapPage> {
     super.initState();
     _loadNavigationPreferences();
     _loadOfflineMap();
+    _loadReportState();
+    _loadTrafficZones();
+    _loadMapFeedbackState();
     _restoreNavigationSession();
   }
 
@@ -121,6 +144,121 @@ class _MapPageState extends State<MapPage> {
     final path = await _offlineMaps.activeMapPath();
     if (!mounted) return;
     setState(() => _offlineMapPath = path);
+  }
+
+  Future<void> _loadMapFeedbackState() async {
+    if (_mapFeedback.isConfigured) {
+      await _mapFeedback.syncPending();
+    }
+    final pending = await _mapFeedback.pendingCount();
+    if (!mounted) return;
+    setState(() => _pendingMapFeedback = pending);
+  }
+
+  void _showMapFeedback() {
+    final position = _destination?.position ?? _gpsPoint ?? _origin?.position;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای اصلاح نقشه، ابتدا یک موقعیت یا مقصد انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => MapFeedbackSheet(position: position),
+    ).then((_) => _loadMapFeedbackState());
+  }
+
+  Future<void> _refreshLiveTraffic(LatLng point, {bool force = false}) async {
+    if (!_traffic.isConfigured) return;
+    final now = DateTime.now();
+    if (!force &&
+        _lastTrafficAt != null &&
+        now.difference(_lastTrafficAt!) < const Duration(seconds: 35)) {
+      return;
+    }
+    _lastTrafficAt = now;
+    try {
+      final segments = await _traffic.nearby(point);
+      if (!mounted) return;
+      setState(() => _trafficSegments = segments);
+    } catch (_) {
+      // Keep last valid traffic snapshot; never fabricate live traffic.
+    }
+  }
+
+  Color _trafficColor(double congestion) {
+    if (congestion >= 0.75) return Colors.red;
+    if (congestion >= 0.45) return Colors.orange;
+    if (congestion >= 0.2) return Colors.amber;
+    return Colors.green;
+  }
+
+  Future<void> _loadTrafficZones() async {
+    final zones = await _trafficZoneService.load();
+    if (!mounted) return;
+    setState(() => _trafficZones = zones);
+    final point = _gpsPoint;
+    if (point != null) _checkTrafficZone(point);
+  }
+
+  void _checkTrafficZone(LatLng point) {
+    TrafficZone? active;
+    for (final zone in _trafficZones) {
+      if (zone.contains(point)) {
+        active = zone;
+        break;
+      }
+    }
+
+    final nextId = active?.id;
+    if (nextId == _activeTrafficZoneId) return;
+    _activeTrafficZoneId = nextId;
+    if (active == null || !mounted) return;
+
+    final suffix = active.description == null
+        ? ''
+        : ' · ${active.description}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('وارد ${active.name} شدی$suffix'),
+        duration: const Duration(seconds: 5),
+      ),
+    );  }
+
+  Future<void> _loadReportState() async {
+    final pending = await _reports.pendingCount();
+    if (!mounted) return;
+    setState(() => _pendingReportCount = pending);
+  }
+
+  Future<void> _refreshReports(LatLng point, {bool force = false}) async {
+    if (!_reports.isConfigured) return;
+    final now = DateTime.now();
+    if (!force &&
+        _lastReportRefreshAt != null &&
+        now.difference(_lastReportRefreshAt!) < const Duration(seconds: 35)) {
+      return;
+    }
+    _lastReportRefreshAt = now;
+
+    try {
+      await _reports.syncPending();
+      final reports = await _reports.nearby(point);
+      final pending = await _reports.pendingCount();
+      if (!mounted) return;
+      setState(() {
+        _roadReports = reports;
+        _pendingReportCount = pending;
+      });
+    } catch (_) {
+      // Keep the last valid live reports and pending queue.
+    }
   }
 
   @override
@@ -173,6 +311,9 @@ class _MapPageState extends State<MapPage> {
         _routeConfirmed = false;
       });
       _mapController.move(point, 16);
+      unawaited(_refreshReports(point, force: true));
+      _checkTrafficZone(point);
+      unawaited(_refreshLiveTraffic(point, force: true));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -428,6 +569,9 @@ class _MapPageState extends State<MapPage> {
           _advanceLiveManeuver(point);
           unawaited(_maybeReroute(point));
           unawaited(_refreshRoadInfo(point));
+          unawaited(_refreshReports(point));
+          _checkTrafficZone(point);
+          unawaited(_refreshLiveTraffic(point));
         },
         onError: (_) {
           if (!mounted) return;
@@ -918,6 +1062,128 @@ class _MapPageState extends State<MapPage> {
     await _loadOfflineMap();
   }
 
+  void _showEnvironment() {
+    final position = _gpsPoint ?? _destination?.position ?? _origin?.position;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای نمایش آب‌وهوا، ابتدا یک موقعیت یا مقصد انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+    final title = _gpsPoint != null
+        ? 'شرایط اطراف من'
+        : (_destination?.title ?? _origin?.title ?? 'موقعیت انتخاب‌شده');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => EnvironmentSheet(
+        position: position,
+        title: title,
+      ),
+    );
+  }
+
+  void _showDestinationDetails() {
+    final place = _destination;
+    if (place == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا یک مقصد انتخاب کنید.')),
+      );
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => PlaceDetailsSheet(
+        position: place.position,
+        fallbackTitle: place.title,
+      ),
+    );
+  }
+
+  void _showTransitNearby() {
+    final center = _gpsPoint ?? _destination?.position ?? _origin?.position;
+    if (center == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای نمایش حمل‌ونقل عمومی، یک موقعیت انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => TransitNearbySheet(
+        center: center,
+        onSelected: (place) {
+          setState(() {
+            _destination = place;
+            _route = null;
+            _alternatives = const [];
+            _routeConfirmed = false;
+          });
+          _mapController.move(place.position, 16);
+        },
+      ),
+    );
+  }
+
+  void _showAlongRouteStops() {
+    final route = _route;
+    if (route == null || route.points.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا یک مسیر بسازید.')),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => AlongRoutePoiSheet(
+        route: route.points,
+        onSelected: (place) {
+          setState(() {
+            _viaPoints.add(place);
+            _route = null;
+            _alternatives = const [];
+            _routeConfirmed = false;
+          });
+          unawaited(_buildRoute());
+        },
+      ),
+    );
+  }
+
+  Future<void> _shareRoute() async {
+    final route = _route;
+    final destination = _destination;
+    if (route == null || destination == null) return;
+
+    final minutes = (route.seconds / 60).round();
+    final arrival = DateTime.now().add(Duration(seconds: route.seconds.round()));
+    final hour = arrival.hour.toString().padLeft(2, '0');
+    final minute = arrival.minute.toString().padLeft(2, '0');
+    final lat = destination.position.latitude;
+    final lon = destination.position.longitude;
+
+    final text = 'مسیر به ${destination.title}\n'
+        'فاصله: ${route.kilometers.toStringAsFixed(1)} کیلومتر\n'
+        'زمان تقریبی: $minutes دقیقه\n'
+        'رسیدن حدود $hour:$minute\n'
+        'مقصد روی نقشه: https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=16/$lat/$lon';
+
+    await SharePlus.instance.share(ShareParams(text: text));
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -928,6 +1194,17 @@ class _MapPageState extends State<MapPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.add_road_rounded),
+                title: const Text('توقف نزدیک مسیر'),
+                subtitle: const Text('پمپ‌بنزین، پارکینگ، داروخانه، بیمارستان و غذا'),
+                onTap: _route == null
+                    ? null
+                    : () {
+                        Navigator.pop(sheetContext);
+                        _showAlongRouteStops();
+                      },
+              ),
               ListTile(
                 leading: const Icon(Icons.add_location_alt_outlined),
                 title: const Text('توقف‌های بین راه'),
@@ -953,6 +1230,86 @@ class _MapPageState extends State<MapPage> {
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _loadPois();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.traffic_outlined),
+                title: const Text('ترافیک زنده'),
+                subtitle: Text(
+                  _traffic.isConfigured
+                      ? (_trafficSegments.isEmpty
+                          ? 'Provider واقعی متصل است؛ داده تازه‌ای نزدیک نیست'
+                          : '${_trafficSegments.length} قطعه ترافیکی تازه')
+                      : 'بدون Provider واقعی غیرفعال است',
+                ),
+                onTap: _traffic.isConfigured
+                    ? () async {
+                        Navigator.pop(sheetContext);
+                        final point =
+                            _gpsPoint ?? _destination?.position ?? _origin?.position;
+                        if (point != null) {
+                          await _refreshLiveTraffic(point, force: true);
+                        }
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.layers_outlined),
+                title: const Text('محدوده‌های ترافیکی'),
+                subtitle: Text(
+                  _trafficZones.isNotEmpty
+                      ? '\${_trafficZones.length} محدوده واقعی بارگذاری شده'
+                      : (_trafficZoneService.isConfigured
+                          ? 'در منبع فعلی محدوده‌ای دریافت نشد'
+                          : 'فقط با منبع GeoJSON واقعی فعال می‌شود'),
+                ),
+                onTap: _trafficZoneService.isConfigured
+                    ? () async {
+                        Navigator.pop(sheetContext);
+                        await _loadTrafficZones();
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_location_alt_outlined),
+                title: const Text('اصلاح نقشه'),
+                subtitle: Text(
+                  _pendingMapFeedback > 0
+                      ? '\${_pendingMapFeedback} پیشنهاد در صف ارسال'
+                      : 'نام، مکان، مسیر بسته یا محدودیت دسترسی اشتباه',
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showMapFeedback();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline_rounded),
+                title: const Text('جزئیات مقصد'),
+                subtitle: const Text('آدرس، ساعت کاری، تلفن و اطلاعات واقعی OSM'),
+                onTap: _destination == null
+                    ? null
+                    : () {
+                        Navigator.pop(sheetContext);
+                        _showDestinationDetails();
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.directions_transit_outlined),
+                title: const Text('حمل‌ونقل عمومی نزدیک'),
+                subtitle: const Text('مترو، ورودی مترو و ایستگاه اتوبوس واقعی OSM'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showTransitNearby();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.wb_cloudy_outlined),
+                title: const Text('آب‌وهوا و کیفیت هوا'),
+                subtitle: const Text('دما، باد، AQI و ذرات معلق واقعی'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showEnvironment();
                 },
               ),
               ListTile(
@@ -1018,15 +1375,19 @@ class _MapPageState extends State<MapPage> {
               ListTile(
                 leading: const Icon(Icons.report_gmailerrorred_rounded),
                 title: const Text('گزارش مسیر'),
-                subtitle: Text(_reports.isConfigured
-                    ? 'تصادف، ترافیک، بسته بودن مسیر یا خطر'
-                    : 'برای گزارش عمومی، سرور گزارش باید تنظیم شود'),
-                onTap: _reports.isConfigured
-                    ? () {
-                        Navigator.pop(sheetContext);
-                        _showReportSheet();
-                      }
-                    : null,
+                subtitle: Text(
+                  _reports.isConfigured
+                      ? (_pendingReportCount > 0
+                          ? 'گزارش‌های زنده + $_pendingReportCount گزارش در صف ارسال'
+                          : 'تصادف، پلیس، دوربین، سرعت‌گیر و بسته بودن مسیر')
+                      : (_pendingReportCount > 0
+                          ? '$_pendingReportCount گزارش روی دستگاه در صف اتصال سرور'
+                          : 'گزارش روی دستگاه ذخیره می‌شود تا سرور واقعی متصل شود'),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showReportSheet();
+                },
               ),
             ],
           ),
@@ -1037,14 +1398,15 @@ class _MapPageState extends State<MapPage> {
 
   void _showReportSheet() {
     final point = _gpsPoint ?? _origin?.position;
-    if (point == null) return;
-    final items = <MapEntry<String, String>>[
-      const MapEntry('traffic', 'ترافیک'),
-      const MapEntry('accident', 'تصادف'),
-      const MapEntry('closure', 'مسیر بسته'),
-      const MapEntry('hazard', 'خطر'),
-      const MapEntry('roadwork', 'عملیات جاده‌ای'),
-    ];
+    if (point == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای ثبت گزارش، ابتدا موقعیت فعلی را مشخص کنید.'),
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -1053,22 +1415,39 @@ class _MapPageState extends State<MapPage> {
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
-            for (final item in items)
+            const ListTile(
+              title: Text(
+                'گزارش اتفاق مسیر',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text(
+                'فقط اتفاقی را گزارش کن که همین حالا در این موقعیت وجود دارد.',
+              ),
+            ),
+            for (final type in RoadReportType.values)
               ListTile(
-                title: Text(item.value),
+                leading: Icon(_roadReportIcon(type)),
+                title: Text(type.label),
                 onTap: () async {
                   Navigator.pop(sheetContext);
-                  try {
-                    await _reports.submit(type: item.key, position: point);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('گزارش ارسال شد.')),
-                    );
-                  } catch (_) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('ارسال گزارش انجام نشد.')),
-                    );
+                  final result = await _reports.submit(
+                    type: type,
+                    position: point,
+                  );
+                  final pending = await _reports.pendingCount();
+                  if (!mounted) return;
+                  setState(() => _pendingReportCount = pending);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        result.sent
+                            ? 'گزارش ارسال شد.'
+                            : 'گزارش ذخیره شد و پس از اتصال سرور واقعی ارسال می‌شود.',
+                      ),
+                    ),
+                  );
+                  if (result.sent) {
+                    unawaited(_refreshReports(point, force: true));
                   }
                 },
               ),
@@ -1077,6 +1456,17 @@ class _MapPageState extends State<MapPage> {
       ),
     );
   }
+
+  IconData _roadReportIcon(RoadReportType type) => switch (type) {
+        RoadReportType.traffic => Icons.traffic_rounded,
+        RoadReportType.accident => Icons.car_crash_outlined,
+        RoadReportType.police => Icons.local_police_outlined,
+        RoadReportType.camera => Icons.videocam_outlined,
+        RoadReportType.speedBump => Icons.speed_rounded,
+        RoadReportType.closure => Icons.block_rounded,
+        RoadReportType.roadwork => Icons.construction_rounded,
+        RoadReportType.hazard => Icons.warning_amber_rounded,
+      };
 
   void _stopNavigation() {
     _positionSubscription?.cancel();
@@ -1126,6 +1516,33 @@ class _MapPageState extends State<MapPage> {
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'ir.sahand.masir',
                 ),
+              if (_trafficSegments.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    for (final segment in _trafficSegments)
+                      Polyline(
+                        points: segment.points,
+                        strokeWidth: 5,
+                        color: _trafficColor(segment.congestion),
+                      ),
+                  ],
+                ),
+              if (_trafficZones.isNotEmpty)
+                PolygonLayer(
+                  polygons: [
+                    for (final zone in _trafficZones)
+                      for (final ring in zone.rings.take(1))
+                        Polygon(
+                          points: ring,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .errorContainer
+                              .withValues(alpha: 0.24),
+                          borderColor: Theme.of(context).colorScheme.error,
+                          borderStrokeWidth: 1.5,
+                        ),
+                  ],
+                ),
               if (_alternatives.isNotEmpty)
                 PolylineLayer(
                   polylines: [
@@ -1159,6 +1576,19 @@ class _MapPageState extends State<MapPage> {
                       child: Tooltip(
                         message: poi.name,
                         child: const _PoiMarker(),
+                      ),
+                    ),
+                  for (final report in _roadReports)
+                    Marker(
+                      point: report.position,
+                      width: 40,
+                      height: 40,
+                      child: Tooltip(
+                        message: report.type.label,
+                        child: _RoadReportMarker(
+                          icon: _roadReportIcon(report.type),
+                          verified: report.verified,
+                        ),
                       ),
                     ),
                   if (_origin != null)
@@ -1302,6 +1732,7 @@ class _MapPageState extends State<MapPage> {
                 onLive: _startLiveNavigation,
                 startingNavigation: _startingNavigation,
                 onSimulation: _startSimulation,
+                onShare: _shareRoute,
               ),
             ),
           if (_simulation && route != null)
@@ -1371,6 +1802,43 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _RoadReportMarker extends StatelessWidget {
+  const _RoadReportMarker({
+    required this.icon,
+    required this.verified,
+  });
+
+  final IconData icon;
+  final bool verified;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: verified ? scheme.errorContainer : scheme.surface,
+        border: Border.all(
+          color: verified ? scheme.error : scheme.outlineVariant,
+          width: verified ? 2 : 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 8,
+            offset: Offset(0, 2),
+            color: Color(0x22000000),
+          ),
+        ],
+      ),
+      child: Icon(
+        icon,
+        size: 20,
+        color: verified ? scheme.onErrorContainer : scheme.onSurface,
       ),
     );
   }
@@ -1528,6 +1996,7 @@ class _RouteCard extends StatelessWidget {
     required this.onLive,
     required this.startingNavigation,
     required this.onSimulation,
+    required this.onShare,
   });
 
   final RouteResult? route;
@@ -1541,6 +2010,26 @@ class _RouteCard extends StatelessWidget {
   final VoidCallback onLive;
   final bool startingNavigation;
   final VoidCallback onSimulation;
+  final VoidCallback onShare;
+
+  String _alternativeLabel(int index) {
+    final route = alternatives[index];
+    final fastest = alternatives
+        .map((e) => e.seconds)
+        .reduce((a, b) => a < b ? a : b);
+    final shortest = alternatives
+        .map((e) => e.kilometers)
+        .reduce((a, b) => a < b ? a : b);
+    final simplest = alternatives
+        .map((e) => e.maneuvers.length)
+        .reduce((a, b) => a < b ? a : b);
+
+    final tags = <String>[];
+    if ((route.seconds - fastest).abs() < 1) tags.add('سریع‌ترین');
+    if ((route.kilometers - shortest).abs() < 0.01) tags.add('کوتاه‌ترین');
+    if (route.maneuvers.length == simplest) tags.add('ساده‌تر');
+    return tags.isEmpty ? 'مسیر ${index + 1}' : tags.join(' • ');
+  }
 
   String _duration(double seconds) {
     final minutes = (seconds / 60).round();
@@ -1582,12 +2071,23 @@ class _RouteCard extends StatelessWidget {
                   itemBuilder: (context, index) => ChoiceChip(
                     selected: index == selectedRouteIndex,
                     onSelected: (_) => onSelectRoute(index),
-                    label: Text('مسیر ${index + 1}'),
+                    label: Text(_alternativeLabel(index)),
                   ),
                 ),
               ),
             ],
-            if (route != null) const SizedBox(height: 12),
+            if (route != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_outlined, size: 18),
+                  label: const Text('اشتراک زمان رسیدن'),
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
             if (route == null)
               SizedBox(
                 width: double.infinity,
