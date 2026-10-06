@@ -38,23 +38,26 @@
 - Favorites / Home / Work / History
 - POI واقعی: پمپ‌بنزین، پارکینگ، بیمارستان، درمانگاه، داروخانه، رستوران، کافه، ATM، فروشگاه و...
 - راهنمای شهر: دیدنی‌ها، غذا، اقامت، خدمات و خرید
-- جستجوی آفلاین روی مکان‌های واقعی قبلاً ذخیره‌شده
+- جستجوی آفلاین روی مکان‌های واقعی که قبلاً از OSM دریافت و روی دستگاه Cache شده‌اند
 - POI و راهنمای شهر با fallback آفلاین
 - مدیر نقشه آفلاین: دانلود، Progress، SHA-256، فعال‌سازی، بروزرسانی و حذف
-- رندر مستقیم PMTiles از حافظه دستگاه
+- رندر مستقیم PMTiles Shortbread از حافظه دستگاه
+- بسته‌های دانلودی ایران کامل، تهران، مشهد، اصفهان، شیراز و تبریز
 - برگشت سریع بین نقشه آنلاین و آفلاین
 
 ## نقشه آفلاین
 
 Catalog پیش‌فرض:
 
-`https://raw.githubusercontent.com/sahandse/masir/main/offline_maps/catalog.json`
+`https://raw.githubusercontent.com/sahandse/masir/main/offline/catalog.json`
 
 بسته‌ها با Workflow زیر از داده واقعی OSM ساخته می‌شوند:
 
-`.github/workflows/offline-map-build.yml`
+`.github/workflows/offline-iran-map.yml`
 
-این Workflow به‌صورت دستی اجرا می‌شود و Android App را منتشر نمی‌کند.
+این Workflow به‌صورت دستی اجرا می‌شود، بسته‌های واقعی Shortbread ایران را به PMTiles تبدیل و Verify می‌کند و Android App را منتشر نمی‌کند.
+
+> نکته: مسیریابی کاملاً آفلاین برای مقصد جدید هنوز ادعا نمی‌شود؛ برنامه Route واقعی Valhalla را ذخیره می‌کند تا هنگام قطع اینترنت همان سفر قابل ادامه باشد. ساخت Route جدید یا Re-route جدید همچنان به سرویس مسیریابی نیاز دارد.
 
 ## Android CI
 
