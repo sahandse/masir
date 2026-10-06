@@ -13,6 +13,7 @@ import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
 import 'package:masir/core/services/traffic_zone_service.dart';
+import 'package:masir/core/services/traffic_service.dart';
 import 'package:masir/core/services/map_feedback_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
@@ -48,6 +49,7 @@ class _MapPageState extends State<MapPage> {
   final _osm = OsmDataService();
   final _reports = ReportService();
   final _trafficZoneService = TrafficZoneService();
+  final _traffic = TrafficService();
   final _mapFeedback = MapFeedbackService();
   final _saved = SavedPlacesService();
   final _voice = VoiceGuidanceService();
@@ -65,6 +67,8 @@ class _MapPageState extends State<MapPage> {
   int _pendingReportCount = 0;
   DateTime? _lastReportRefreshAt;
   List<TrafficZone> _trafficZones = const [];
+  List<TrafficSegment> _trafficSegments = const [];
+  DateTime? _lastTrafficAt;
   String? _activeTrafficZoneId;
   int _pendingMapFeedback = 0;
   LatLng? _gpsPoint;
@@ -167,6 +171,31 @@ class _MapPageState extends State<MapPage> {
       showDragHandle: true,
       builder: (_) => MapFeedbackSheet(position: position),
     ).then((_) => _loadMapFeedbackState());
+  }
+
+  Future<void> _refreshLiveTraffic(LatLng point, {bool force = false}) async {
+    if (!_traffic.isConfigured) return;
+    final now = DateTime.now();
+    if (!force &&
+        _lastTrafficAt != null &&
+        now.difference(_lastTrafficAt!) < const Duration(seconds: 35)) {
+      return;
+    }
+    _lastTrafficAt = now;
+    try {
+      final segments = await _traffic.nearby(point);
+      if (!mounted) return;
+      setState(() => _trafficSegments = segments);
+    } catch (_) {
+      // Keep last valid traffic snapshot; never fabricate live traffic.
+    }
+  }
+
+  Color _trafficColor(double congestion) {
+    if (congestion >= 0.75) return Colors.red;
+    if (congestion >= 0.45) return Colors.orange;
+    if (congestion >= 0.2) return Colors.amber;
+    return Colors.green;
   }
 
   Future<void> _loadTrafficZones() async {
@@ -283,6 +312,7 @@ class _MapPageState extends State<MapPage> {
       _mapController.move(point, 16);
       unawaited(_refreshReports(point, force: true));
       _checkTrafficZone(point);
+      unawaited(_refreshLiveTraffic(point, force: true));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -540,6 +570,7 @@ class _MapPageState extends State<MapPage> {
           unawaited(_refreshRoadInfo(point));
           unawaited(_refreshReports(point));
           _checkTrafficZone(point);
+          unawaited(_refreshLiveTraffic(point));
         },
         onError: (_) {
           if (!mounted) return;
@@ -1180,6 +1211,27 @@ class _MapPageState extends State<MapPage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.traffic_outlined),
+                title: const Text('ترافیک زنده'),
+                subtitle: Text(
+                  _traffic.isConfigured
+                      ? (_trafficSegments.isEmpty
+                          ? 'Provider واقعی متصل است؛ داده تازه‌ای نزدیک نیست'
+                          : '${_trafficSegments.length} قطعه ترافیکی تازه')
+                      : 'بدون Provider واقعی غیرفعال است',
+                ),
+                onTap: _traffic.isConfigured
+                    ? () async {
+                        Navigator.pop(sheetContext);
+                        final point =
+                            _gpsPoint ?? _destination?.position ?? _origin?.position;
+                        if (point != null) {
+                          await _refreshLiveTraffic(point, force: true);
+                        }
+                      }
+                    : null,
+              ),
+              ListTile(
                 leading: const Icon(Icons.layers_outlined),
                 title: const Text('محدوده‌های ترافیکی'),
                 subtitle: Text(
@@ -1441,6 +1493,17 @@ class _MapPageState extends State<MapPage> {
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'ir.sahand.masir',
+                ),
+              if (_trafficSegments.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    for (final segment in _trafficSegments)
+                      Polyline(
+                        points: segment.points,
+                        strokeWidth: 5,
+                        color: _trafficColor(segment.congestion),
+                      ),
+                  ],
                 ),
               if (_trafficZones.isNotEmpty)
                 PolygonLayer(
