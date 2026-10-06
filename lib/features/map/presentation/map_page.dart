@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_preferences_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
+import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
@@ -32,6 +33,7 @@ class _MapPageState extends State<MapPage> {
   final _location = LocationService();
   final _navPrefsService = NavigationPreferencesService();
   final _session = NavigationSessionService();
+  final _offlineRoutes = OfflineRouteStoreService();
   final _persian = PersianGuidanceService();
   final _routing = ValhallaService();
   final _osm = OsmDataService();
@@ -215,6 +217,11 @@ class _MapPageState extends State<MapPage> {
         mode: _navPrefs.mode,
       );
       final result = options.first;
+      await _offlineRoutes.save(
+        destination: _destination!.position,
+        mode: _navPrefs.mode,
+        route: result,
+      );
       await _saved.addHistory(_destination!);
       if (!mounted) return;
 
@@ -301,6 +308,7 @@ class _MapPageState extends State<MapPage> {
       final current = LatLng(position.latitude, position.longitude);
 
       RouteResult liveRoute;
+      var usingOfflineSnapshot = false;
       try {
         liveRoute = await _routing.route(
           current,
@@ -311,14 +319,30 @@ class _MapPageState extends State<MapPage> {
           useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
           mode: _navPrefs.mode,
         );
-      } catch (_) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('GPS آماده است، اما دریافت مسیر رانندگی از سرور انجام نشد.'),
-          ),
+        await _offlineRoutes.save(
+          destination: destination.position,
+          mode: _navPrefs.mode,
+          route: liveRoute,
         );
-        return;
+      } catch (_) {
+        final savedRoute = await _offlineRoutes.loadForTrip(
+          current: current,
+          destination: destination.position,
+          mode: _navPrefs.mode,
+        );
+        if (savedRoute == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'مسیر آنلاین در دسترس نیست و مسیر ذخیره‌شده مناسبی هم پیدا نشد.',
+              ),
+            ),
+          );
+          return;
+        }
+        liveRoute = savedRoute;
+        usingOfflineSnapshot = true;
       }
 
       if (!mounted) return;
@@ -341,6 +365,14 @@ class _MapPageState extends State<MapPage> {
       });
 
       _mapController.move(current, 17);
+
+      if (usingOfflineSnapshot && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ادامه مسیر با نسخه ذخیره‌شده آفلاین'),
+          ),
+        );
+      }
 
       await _session.save(
         destination: destination,
