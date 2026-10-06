@@ -20,7 +20,7 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.MASIR_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.MASIR_KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.MASIR_KEY_PASSWORD }}
-      OFFLINE_CATALOG_URL: https://raw.githubusercontent.com/sahandse/masir/main/offline_maps/catalog.json
+      OFFLINE_CATALOG_URL: https://raw.githubusercontent.com/sahandse/masir/main/offline/catalog.json
     steps:
       - uses: actions/checkout@v4
 
