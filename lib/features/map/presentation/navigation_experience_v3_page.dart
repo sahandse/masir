@@ -111,6 +111,7 @@ class _NavigationExperienceV3PageState
           current,
           session.destination.position,
           viaPoints: session.viaPoints.map((e) => e.position).toList(),
+          mode: session.mode,
         );
         if (!mounted || _controller.state.session == null) return;
         _controller.setRoute(route);
@@ -207,6 +208,7 @@ class _NavigationExperienceV3PageState
         current,
         session.destination.position,
         viaPoints: session.viaPoints.map((e) => e.position).toList(),
+        mode: session.mode,
       );
       if (!mounted || _controller.state.session == null) return;
       _spokenStages.clear();
