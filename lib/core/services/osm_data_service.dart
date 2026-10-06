@@ -72,7 +72,26 @@ class OsmDataService {
         '["tourism"~"hotel"];'
         ');out center tags;';
 
-    final res = await _postOverpass(q);
+    Response<Map<String, dynamic>> res;
+    try {
+      res = await _postOverpass(q);
+    } catch (_) {
+      final cached = await _offlineCache.nearby(
+        center,
+        radiusMeters: 3000,
+        limit: 80,
+      );
+      return cached
+          .map(
+            (place) => OsmPoi(
+              name: place.title,
+              category: 'offline',
+              position: place.position,
+            ),
+          )
+          .toList(growable: false);
+    }
+
     final elements = (res.data?['elements'] as List<dynamic>?) ?? const [];
     final out = <OsmPoi>[];
 
@@ -196,6 +215,7 @@ class OsmDataService {
       'convenience': 'فروشگاه',
       'supermarket': 'سوپرمارکت',
       'hotel': 'هتل',
+      'offline': 'ذخیره آفلاین',
     };
     return labels[category] ?? 'مکان';
   }
