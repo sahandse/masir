@@ -69,6 +69,8 @@ class _EnvironmentSheetState extends State<EnvironmentSheet> {
           }
 
           final data = snapshot.data!;
+          final pm25 = data.pm25?.toStringAsFixed(1) ?? '—';
+          final pm10 = data.pm10?.toStringAsFixed(1) ?? '—';
           return Padding(
             padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
             child: Column(
@@ -133,8 +135,7 @@ class _EnvironmentSheetState extends State<EnvironmentSheet> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'PM2.5: \${data.pm25?.toStringAsFixed(1) ?? '—'} · '
-                  'PM10: \${data.pm10?.toStringAsFixed(1) ?? '—'} µg/m³',
+                  'PM2.5: $pm25 · PM10: $pm10 µg/m³',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.labelMedium,
                 ),
