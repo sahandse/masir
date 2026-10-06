@@ -12,6 +12,7 @@ import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
+import 'package:masir/core/services/traffic_zone_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
@@ -40,6 +41,7 @@ class _MapPageState extends State<MapPage> {
   final _routing = ValhallaService();
   final _osm = OsmDataService();
   final _reports = ReportService();
+  final _trafficZoneService = TrafficZoneService();
   final _saved = SavedPlacesService();
   final _voice = VoiceGuidanceService();
   final _offlineMaps = OfflineMapCatalogService();
@@ -55,6 +57,8 @@ class _MapPageState extends State<MapPage> {
   List<RoadReport> _roadReports = const [];
   int _pendingReportCount = 0;
   DateTime? _lastReportRefreshAt;
+  List<TrafficZone> _trafficZones = const [];
+  String? _activeTrafficZoneId;
   LatLng? _gpsPoint;
   double _speedKmh = 0;
   int? _maxSpeedKmh;
@@ -82,6 +86,7 @@ class _MapPageState extends State<MapPage> {
     _loadNavigationPreferences();
     _loadOfflineMap();
     _loadReportState();
+    _loadTrafficZones();
     _restoreNavigationSession();
   }
 
@@ -125,6 +130,38 @@ class _MapPageState extends State<MapPage> {
     final path = await _offlineMaps.activeMapPath();
     if (!mounted) return;
     setState(() => _offlineMapPath = path);
+  }
+
+  Future<void> _loadTrafficZones() async {
+    final zones = await _trafficZoneService.load();
+    if (!mounted) return;
+    setState(() => _trafficZones = zones);
+    final point = _gpsPoint;
+    if (point != null) _checkTrafficZone(point);
+  }
+
+  void _checkTrafficZone(LatLng point) {
+    TrafficZone? active;
+    for (final zone in _trafficZones) {
+      if (zone.contains(point)) {
+        active = zone;
+        break;
+      }
+    }
+
+    final nextId = active?.id;
+    if (nextId == _activeTrafficZoneId) return;
+    _activeTrafficZoneId = nextId;
+    if (active == null || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'وارد \${active.name} شدی\${active.description == null ? '' : ' · \${active.description}'}',
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 
   Future<void> _loadReportState() async {
@@ -208,6 +245,7 @@ class _MapPageState extends State<MapPage> {
       });
       _mapController.move(point, 16);
       unawaited(_refreshReports(point, force: true));
+      _checkTrafficZone(point);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -464,6 +502,7 @@ class _MapPageState extends State<MapPage> {
           unawaited(_maybeReroute(point));
           unawaited(_refreshRoadInfo(point));
           unawaited(_refreshReports(point));
+          _checkTrafficZone(point);
         },
         onError: (_) {
           if (!mounted) return;
@@ -992,6 +1031,23 @@ class _MapPageState extends State<MapPage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.layers_outlined),
+                title: const Text('محدوده‌های ترافیکی'),
+                subtitle: Text(
+                  _trafficZones.isNotEmpty
+                      ? '\${_trafficZones.length} محدوده واقعی بارگذاری شده'
+                      : (_trafficZoneService.isConfigured
+                          ? 'در منبع فعلی محدوده‌ای دریافت نشد'
+                          : 'فقط با منبع GeoJSON واقعی فعال می‌شود'),
+                ),
+                onTap: _trafficZoneService.isConfigured
+                    ? () async {
+                        Navigator.pop(sheetContext);
+                        await _loadTrafficZones();
+                      }
+                    : null,
+              ),
+              ListTile(
                 leading: const Icon(Icons.travel_explore_rounded),
                 title: const Text('راهنمای شهر'),
                 subtitle: const Text('دیدنی‌ها، اقامت، غذا، خرید و خدمات واقعی OSM'),
@@ -1194,6 +1250,22 @@ class _MapPageState extends State<MapPage> {
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'ir.sahand.masir',
+                ),
+              if (_trafficZones.isNotEmpty)
+                PolygonLayer(
+                  polygons: [
+                    for (final zone in _trafficZones)
+                      for (final ring in zone.rings.take(1))
+                        Polygon(
+                          points: ring,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .errorContainer
+                              .withValues(alpha: 0.24),
+                          borderColor: Theme.of(context).colorScheme.error,
+                          borderStrokeWidth: 1.5,
+                        ),
+                  ],
                 ),
               if (_alternatives.isNotEmpty)
                 PolylineLayer(
