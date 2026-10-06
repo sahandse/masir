@@ -3,6 +3,9 @@ name: Android Release
 on:
   push:
     tags: ['v*']
+    branches: [ main ]
+    paths:
+      - release/request.txt
   workflow_dispatch:
 
 concurrency:
@@ -114,15 +117,26 @@ jobs:
             masir-v${{ steps.version.outputs.version }}.aab
           if-no-files-found: error
 
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v${{ steps.version.outputs.version }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Masir ${{ github.ref_name }}
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: Masir ${{ steps.release_tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           body: |
-            مسیر ${{ github.ref_name }}
+            مسیر ${{ steps.release_tag.outputs.tag }}
 
             - مسیریابی خودرو، پیاده و دوچرخه
             - راهنمای شهر با داده واقعی OpenStreetMap
