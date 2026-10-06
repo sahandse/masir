@@ -41,6 +41,15 @@ jobs:
           flutter build appbundle --release --dart-define=VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de --dart-define=MASIR_OFFLINE_CATALOG_URL=https://raw.githubusercontent.com/sahandse/masir/main/offline/catalog.json
           cp build/app/outputs/flutter-apk/app-release.apk masir-v1.2.0-unsigned.apk
           cp build/app/outputs/bundle/release/app-release.aab masir-v1.2.0-unsigned.aab
+      - name: Upload unsigned artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: masir-v1.2.0-unsigned
+          path: |
+            masir-v1.2.0-unsigned.apk
+            masir-v1.2.0-unsigned.aab
+          if-no-files-found: error
+
       - name: Publish temporary unsigned build
         uses: softprops/action-gh-release@v2
         with:
