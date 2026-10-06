@@ -21,6 +21,7 @@ import 'package:masir/features/search/presentation/search_sheet.dart';
 import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
+import 'package:masir/features/environment/presentation/environment_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -993,6 +994,30 @@ class _MapPageState extends State<MapPage> {
     await _loadOfflineMap();
   }
 
+  void _showEnvironment() {
+    final position = _gpsPoint ?? _destination?.position ?? _origin?.position;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای نمایش آب‌وهوا، ابتدا یک موقعیت یا مقصد انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+    final title = _gpsPoint != null
+        ? 'شرایط اطراف من'
+        : (_destination?.title ?? _origin?.title ?? 'موقعیت انتخاب‌شده');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => EnvironmentSheet(
+        position: position,
+        title: title,
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1046,6 +1071,15 @@ class _MapPageState extends State<MapPage> {
                         await _loadTrafficZones();
                       }
                     : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.wb_cloudy_outlined),
+                title: const Text('آب‌وهوا و کیفیت هوا'),
+                subtitle: const Text('دما، باد، AQI و ذرات معلق واقعی'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showEnvironment();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.travel_explore_rounded),
