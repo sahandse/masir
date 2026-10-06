@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:masir/core/services/location_service.dart';
 import 'package:masir/core/services/navigation_preferences_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
@@ -1162,6 +1163,27 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  Future<void> _shareRoute() async {
+    final route = _route;
+    final destination = _destination;
+    if (route == null || destination == null) return;
+
+    final minutes = (route.seconds / 60).round();
+    final arrival = DateTime.now().add(Duration(seconds: route.seconds.round()));
+    final hour = arrival.hour.toString().padLeft(2, '0');
+    final minute = arrival.minute.toString().padLeft(2, '0');
+    final lat = destination.position.latitude;
+    final lon = destination.position.longitude;
+
+    final text = 'مسیر به ${destination.title}\n'
+        'فاصله: ${route.kilometers.toStringAsFixed(1)} کیلومتر\n'
+        'زمان تقریبی: $minutes دقیقه\n'
+        'رسیدن حدود $hour:$minute\n'
+        'مقصد روی نقشه: https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=16/$lat/$lon';
+
+    await SharePlus.instance.share(ShareParams(text: text));
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1710,6 +1732,7 @@ class _MapPageState extends State<MapPage> {
                 onLive: _startLiveNavigation,
                 startingNavigation: _startingNavigation,
                 onSimulation: _startSimulation,
+                onShare: _shareRoute,
               ),
             ),
           if (_simulation && route != null)
@@ -1973,6 +1996,7 @@ class _RouteCard extends StatelessWidget {
     required this.onLive,
     required this.startingNavigation,
     required this.onSimulation,
+    required this.onShare,
   });
 
   final RouteResult? route;
@@ -1986,6 +2010,26 @@ class _RouteCard extends StatelessWidget {
   final VoidCallback onLive;
   final bool startingNavigation;
   final VoidCallback onSimulation;
+  final VoidCallback onShare;
+
+  String _alternativeLabel(int index) {
+    final route = alternatives[index];
+    final fastest = alternatives
+        .map((e) => e.seconds)
+        .reduce((a, b) => a < b ? a : b);
+    final shortest = alternatives
+        .map((e) => e.kilometers)
+        .reduce((a, b) => a < b ? a : b);
+    final simplest = alternatives
+        .map((e) => e.maneuvers.length)
+        .reduce((a, b) => a < b ? a : b);
+
+    final tags = <String>[];
+    if ((route.seconds - fastest).abs() < 1) tags.add('سریع‌ترین');
+    if ((route.kilometers - shortest).abs() < 0.01) tags.add('کوتاه‌ترین');
+    if (route.maneuvers.length == simplest) tags.add('ساده‌تر');
+    return tags.isEmpty ? 'مسیر ${index + 1}' : tags.join(' • ');
+  }
 
   String _duration(double seconds) {
     final minutes = (seconds / 60).round();
@@ -2027,12 +2071,23 @@ class _RouteCard extends StatelessWidget {
                   itemBuilder: (context, index) => ChoiceChip(
                     selected: index == selectedRouteIndex,
                     onSelected: (_) => onSelectRoute(index),
-                    label: Text('مسیر ${index + 1}'),
+                    label: Text(_alternativeLabel(index)),
                   ),
                 ),
               ),
             ],
-            if (route != null) const SizedBox(height: 12),
+            if (route != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_outlined, size: 18),
+                  label: const Text('اشتراک زمان رسیدن'),
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
             if (route == null)
               SizedBox(
                 width: double.infinity,
