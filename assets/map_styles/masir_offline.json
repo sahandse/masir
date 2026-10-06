@@ -1,109 +1,146 @@
 {
   "version": 8,
-  "name": "Masir Offline",
+  "name": "Masir Shortbread Offline",
   "sources": {
     "openmaptiles": {
       "type": "vector",
       "tiles": ["https://invalid.masir.local/{z}/{x}/{y}.pbf"],
       "minzoom": 0,
-      "maxzoom": 14
+      "maxzoom": 14,
+      "attribution": "© OpenStreetMap contributors"
     }
   },
   "layers": [
     {
       "id": "background",
       "type": "background",
-      "paint": {"background-color": "#F6F7F4"}
+      "paint": {"background-color": "#F5F7F3"}
     },
     {
-      "id": "landuse",
+      "id": "land",
       "type": "fill",
       "source": "openmaptiles",
-      "source-layer": "landuse",
-      "paint": {"fill-color": "#ECEFE8", "fill-opacity": 0.72}
+      "source-layer": "land",
+      "paint": {"fill-color": "#EEF1EA"}
     },
     {
-      "id": "park",
+      "id": "sites",
       "type": "fill",
       "source": "openmaptiles",
-      "source-layer": "park",
-      "paint": {"fill-color": "#DDEDD8", "fill-opacity": 0.9}
+      "source-layer": "sites",
+      "minzoom": 11,
+      "paint": {"fill-color": "#E5EBDD", "fill-opacity": 0.78}
     },
     {
-      "id": "water",
+      "id": "water-polygons",
       "type": "fill",
       "source": "openmaptiles",
-      "source-layer": "water",
-      "paint": {"fill-color": "#CFE8F6"}
+      "source-layer": "water_polygons",
+      "paint": {"fill-color": "#CFE7F5"}
     },
     {
-      "id": "waterway",
+      "id": "water-lines",
       "type": "line",
       "source": "openmaptiles",
-      "source-layer": "waterway",
-      "paint": {"line-color": "#B8DBEF", "line-width": 1.2}
+      "source-layer": "water_lines",
+      "paint": {"line-color": "#B4D9EE", "line-width": 1.25}
     },
     {
-      "id": "roads-minor",
+      "id": "boundaries",
       "type": "line",
       "source": "openmaptiles",
-      "source-layer": "transportation",
-      "filter": ["match", ["get", "class"], ["path", "track", "service", "minor"], true, false],
-      "paint": {"line-color": "#FFFFFF", "line-width": 1.6}
+      "source-layer": "boundaries",
+      "paint": {
+        "line-color": "#B7BBB5",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.7, 12, 1.4],
+        "line-dasharray": [3, 2]
+      }
     },
     {
-      "id": "roads-main-casing",
+      "id": "streets-local",
       "type": "line",
       "source": "openmaptiles",
-      "source-layer": "transportation",
-      "filter": ["match", ["get", "class"], ["motorway", "trunk", "primary", "secondary", "tertiary"], true, false],
-      "paint": {"line-color": "#D6D9D4", "line-width": 4.8}
+      "source-layer": "streets",
+      "filter": ["match", ["get", "kind"], ["residential", "unclassified", "service", "living_street", "pedestrian", "path", "track"], true, false],
+      "paint": {
+        "line-color": "#FFFFFF",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 2.2, 18, 5.5]
+      }
     },
     {
-      "id": "roads-main",
+      "id": "streets-main-casing",
       "type": "line",
       "source": "openmaptiles",
-      "source-layer": "transportation",
-      "filter": ["match", ["get", "class"], ["motorway", "trunk", "primary", "secondary", "tertiary"], true, false],
-      "paint": {"line-color": "#FFFFFF", "line-width": 3.4}
+      "source-layer": "streets",
+      "filter": ["match", ["get", "kind"], ["motorway", "trunk", "primary", "secondary", "tertiary"], true, false],
+      "paint": {
+        "line-color": "#D3D8D0",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.1, 12, 3.8, 16, 8.0]
+      }
+    },
+    {
+      "id": "streets-main",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "streets",
+      "filter": ["match", ["get", "kind"], ["motorway", "trunk", "primary", "secondary", "tertiary"], true, false],
+      "paint": {
+        "line-color": "#FFFFFF",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.7, 12, 2.8, 16, 6.5]
+      }
     },
     {
       "id": "buildings",
       "type": "fill",
       "source": "openmaptiles",
-      "source-layer": "building",
+      "source-layer": "buildings",
       "minzoom": 13,
-      "paint": {"fill-color": "#E4E1DC", "fill-outline-color": "#D6D1CB"}
-    },
-    {
-      "id": "road-names",
-      "type": "symbol",
-      "source": "openmaptiles",
-      "source-layer": "transportation_name",
-      "minzoom": 11,
-      "layout": {
-        "symbol-placement": "line",
-        "text-field": ["coalesce", ["get", "name:fa"], ["get", "name"]],
-        "text-size": 11
-      },
       "paint": {
-        "text-color": "#5E625D",
-        "text-halo-color": "#FFFFFF",
-        "text-halo-width": 1.3
+        "fill-color": "#E4E1DC",
+        "fill-outline-color": "#D7D2CB"
       }
     },
     {
-      "id": "places",
+      "id": "poi-dots",
+      "type": "circle",
+      "source": "openmaptiles",
+      "source-layer": "pois",
+      "minzoom": 13,
+      "paint": {
+        "circle-radius": 2.5,
+        "circle-color": "#2D7D5D",
+        "circle-opacity": 0.72
+      }
+    },
+    {
+      "id": "street-labels",
       "type": "symbol",
       "source": "openmaptiles",
-      "source-layer": "place",
+      "source-layer": "street_labels",
+      "minzoom": 11,
       "layout": {
-        "text-field": ["coalesce", ["get", "name:fa"], ["get", "name"]],
+        "symbol-placement": "line",
+        "text-field": ["coalesce", ["get", "name_fa"], ["get", "name"]],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#575C56",
+        "text-halo-color": "#FFFFFF",
+        "text-halo-width": 1.25
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "openmaptiles",
+      "source-layer": "place_labels",
+      "layout": {
+        "text-field": ["coalesce", ["get", "name_fa"], ["get", "name"]],
         "text-size": ["interpolate", ["linear"], ["zoom"], 5, 11, 12, 15]
       },
       "paint": {
         "text-color": "#282B28",
-        "text-halo-color": "#F6F7F4",
+        "text-halo-color": "#F5F7F3",
         "text-halo-width": 1.4
       }
     }
