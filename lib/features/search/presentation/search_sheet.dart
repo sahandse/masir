@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:masir/features/search/data/nominatim_service.dart';
+import 'package:masir/core/services/offline_place_cache_service.dart';
 import 'package:masir/features/search/models/place_result.dart';
 
 class SearchSheet extends StatefulWidget {
@@ -15,9 +16,11 @@ class SearchSheet extends StatefulWidget {
 class _SearchSheetState extends State<SearchSheet> {
   final _controller = TextEditingController();
   final _service = NominatimService();
+  final _offline = OfflinePlaceCacheService();
   List<PlaceResult> _items = const [];
   bool _loading = false;
   String? _error;
+  bool _offlineOnly = false;
   Timer? _debounce;
   int _requestId = 0;
 
@@ -56,13 +59,33 @@ class _SearchSheetState extends State<SearchSheet> {
       _error = null;
     });
 
+    final offlineResults = await _offline.search(query);
     try {
-      final results = await _service.search(query);
+      final onlineResults = await _service.search(query);
+      unawaited(_offline.merge(onlineResults));
       if (!mounted || currentRequest != _requestId) return;
-      setState(() => _items = results);
+
+      final merged = <PlaceResult>[];
+      final seen = <String>{};
+      for (final item in [...onlineResults, ...offlineResults]) {
+        final key =
+            '${item.position.latitude.toStringAsFixed(5)},${item.position.longitude.toStringAsFixed(5)}|${item.title.toLowerCase()}';
+        if (seen.add(key)) merged.add(item);
+      }
+
+      setState(() {
+        _items = merged;
+        _offlineOnly = false;
+      });
     } catch (_) {
       if (!mounted || currentRequest != _requestId) return;
-      setState(() => _error = 'جستجو انجام نشد. اتصال اینترنت را بررسی کنید.');
+      setState(() {
+        _items = offlineResults;
+        _offlineOnly = offlineResults.isNotEmpty;
+        _error = offlineResults.isEmpty
+            ? 'جستجو انجام نشد. اتصال اینترنت را بررسی کنید.'
+            : null;
+      });
     } finally {
       if (mounted && currentRequest == _requestId) {
         setState(() => _loading = false);
@@ -147,7 +170,9 @@ class _SearchSheetState extends State<SearchSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              'داده مکان: OpenStreetMap / Nominatim',
+              _offlineOnly
+                  ? 'نتایج ذخیره‌شده آفلاین از داده واقعی OpenStreetMap'
+                  : 'داده مکان: OpenStreetMap / Nominatim',
               style: Theme.of(context).textTheme.labelSmall,
             ),
           ],

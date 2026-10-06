@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:masir/core/services/offline_place_cache_service.dart';
+import 'package:masir/features/search/models/place_result.dart';
 
 class OsmPoi {
   const OsmPoi({
@@ -44,6 +46,7 @@ class OsmDataService {
             );
 
   final Dio _dio;
+  final _offlineCache = OfflinePlaceCacheService();
 
   static const _overpassEndpoints = <String>[
     'https://overpass-api.de/api/interpreter',
@@ -69,7 +72,26 @@ class OsmDataService {
         '["tourism"~"hotel"];'
         ');out center tags;';
 
-    final res = await _postOverpass(q);
+    Response<Map<String, dynamic>> res;
+    try {
+      res = await _postOverpass(q);
+    } catch (_) {
+      final cached = await _offlineCache.nearby(
+        center,
+        radiusMeters: 3000,
+        limit: 80,
+      );
+      return cached
+          .map(
+            (place) => OsmPoi(
+              name: place.title,
+              category: 'offline',
+              position: place.position,
+            ),
+          )
+          .toList(growable: false);
+    }
+
     final elements = (res.data?['elements'] as List<dynamic>?) ?? const [];
     final out = <OsmPoi>[];
 
@@ -93,6 +115,15 @@ class OsmDataService {
 
     final items = out.take(80).toList(growable: false);
     _poiCache[cacheKey] = _PoiCache(DateTime.now(), items);
+    await _offlineCache.merge(
+      items.map(
+        (poi) => PlaceResult(
+          title: poi.name,
+          subtitle: _persianCategoryName(poi.category),
+          position: poi.position,
+        ),
+      ),
+    );
     if (_poiCache.length > 40) {
       final oldest = _poiCache.entries.toList()
         ..sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
@@ -184,6 +215,7 @@ class OsmDataService {
       'convenience': 'فروشگاه',
       'supermarket': 'سوپرمارکت',
       'hotel': 'هتل',
+      'offline': 'ذخیره آفلاین',
     };
     return labels[category] ?? 'مکان';
   }
