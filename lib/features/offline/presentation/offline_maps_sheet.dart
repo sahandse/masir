@@ -68,6 +68,22 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
     }
   }
 
+  Future<void> _activate(OfflineRegion region) async {
+    try {
+      await _service.setActive(region);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('نقشه ${region.title} فعال شد.')),
+      );
+      _reload();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('فعال‌سازی نقشه آفلاین انجام نشد.')),
+      );
+    }
+  }
+
   Future<void> _remove(OfflineRegion region) async {
     await _service.remove(region);
     if (!mounted) return;
@@ -170,6 +186,7 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
                                 children: [
                                   Text(
                                     'نسخه ${region.version} · ${_size(region.bytes)}'
+                                    '${state.active ? ' · فعال' : ''}'
                                     '${state.updateAvailable ? ' · بروزرسانی موجود' : ''}',
                                   ),
                                   if (busy && progress != null)
@@ -193,6 +210,8 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
                                       onSelected: (value) {
                                         if (value == 'download') {
                                           _download(region);
+                                        } else if (value == 'activate') {
+                                          _activate(region);
                                         } else if (value == 'remove') {
                                           _remove(region);
                                         }
@@ -206,6 +225,11 @@ class _OfflineMapsSheetState extends State<OfflineMapsSheet> {
                                                 : 'دانلود',
                                           ),
                                         ),
+                                        if (state.installed && !state.active)
+                                          const PopupMenuItem(
+                                            value: 'activate',
+                                            child: Text('استفاده روی نقشه'),
+                                          ),
                                         if (state.installed)
                                           const PopupMenuItem(
                                             value: 'remove',
