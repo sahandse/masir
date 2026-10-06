@@ -26,6 +26,7 @@ import 'package:masir/features/environment/presentation/environment_sheet.dart';
 import 'package:masir/features/place/presentation/place_details_sheet.dart';
 import 'package:masir/features/map_feedback/presentation/map_feedback_sheet.dart';
 import 'package:masir/features/transit/presentation/transit_nearby_sheet.dart';
+import 'package:masir/features/route/presentation/along_route_poi_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -1102,6 +1103,34 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _showAlongRouteStops() {
+    final route = _route;
+    if (route == null || route.points.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا یک مسیر بسازید.')),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => AlongRoutePoiSheet(
+        route: route.points,
+        onSelected: (place) {
+          setState(() {
+            _viaPoints.add(place);
+            _route = null;
+            _alternatives = const [];
+            _routeConfirmed = false;
+          });
+          unawaited(_buildRoute());
+        },
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1112,6 +1141,17 @@ class _MapPageState extends State<MapPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.add_road_rounded),
+                title: const Text('توقف نزدیک مسیر'),
+                subtitle: const Text('پمپ‌بنزین، پارکینگ، داروخانه، بیمارستان و غذا'),
+                onTap: _route == null
+                    ? null
+                    : () {
+                        Navigator.pop(sheetContext);
+                        _showAlongRouteStops();
+                      },
+              ),
               ListTile(
                 leading: const Icon(Icons.add_location_alt_outlined),
                 title: const Text('توقف‌های بین راه'),
