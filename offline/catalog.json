@@ -1,6 +1,68 @@
 {
   "schema": 1,
   "source": "OpenStreetMap / Geofabrik Shortbread",
-  "updated_at": null,
-  "regions": []
+  "attribution": "© OpenStreetMap contributors",
+  "updated_at": "2026-10-06T08:23:58Z",
+  "regions": [
+    {
+      "id": "iran",
+      "title": "ایران",
+      "file_name": "iran-shortbread-1.0.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/iran-shortbread-1.0.pmtiles",
+      "bytes": 543052002,
+      "sha256": "dd0a6b640ec15d9438521e346df1343bec32512207477cc4598809af02046075",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    },
+    {
+      "id": "tehran",
+      "title": "تهران و اطراف",
+      "file_name": "tehran.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/tehran.pmtiles",
+      "bytes": 18366192,
+      "sha256": "cf4f719aa03471974741a292f239ec13ed38de06cdda70a68257ffe2d75edd00",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    },
+    {
+      "id": "mashhad",
+      "title": "مشهد و اطراف",
+      "file_name": "mashhad.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/mashhad.pmtiles",
+      "bytes": 6358257,
+      "sha256": "f91afe8dd983bef2a6eba5bc15df9966c4b79d6967617a31cf913a644c9f0ad5",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    },
+    {
+      "id": "isfahan",
+      "title": "اصفهان و اطراف",
+      "file_name": "isfahan.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/isfahan.pmtiles",
+      "bytes": 8870892,
+      "sha256": "d2b122945f8f3a45e39d0738ada5d89f0b18033e22fce83a9585839701aceecc",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    },
+    {
+      "id": "shiraz",
+      "title": "شیراز و اطراف",
+      "file_name": "shiraz.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/shiraz.pmtiles",
+      "bytes": 7051500,
+      "sha256": "b328cd590435348d75faf1ac452470349665a6b89521245c73e4de86dec0caf8",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    },
+    {
+      "id": "tabriz",
+      "title": "تبریز و اطراف",
+      "file_name": "tabriz.pmtiles",
+      "download_url": "https://github.com/sahandse/masir/releases/download/offline-maps-iran/tabriz.pmtiles",
+      "bytes": 4037622,
+      "sha256": "6e1872b112dce0ad0d3c2f9ba793b7937c9fc47f1e0f10971db8e26468080097",
+      "version": "2026.10.06",
+      "updated_at": "2026-10-06T08:23:58Z"
+    }
+  ]
 }
