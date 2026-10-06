@@ -134,6 +134,65 @@ class OsmDataService {
     return items;
   }
 
+  Future<List<OsmPoi>> poisAlongRoute(
+    List<LatLng> route, {
+    Set<String>? categories,
+    double maxDistanceMeters = 1200,
+  }) async {
+    if (route.length < 2) return const [];
+
+    final sampleIndexes = <int>{
+      (route.length * 0.2).floor(),
+      (route.length * 0.5).floor(),
+      (route.length * 0.8).floor(),
+    }.map((i) => i.clamp(0, route.length - 1)).toList();
+
+    final batches = await Future.wait(
+      sampleIndexes.map((index) => nearbyPois(route[index])),
+    );
+
+    final seen = <String>{};
+    final candidates = <OsmPoi>[];
+    for (final batch in batches) {
+      for (final poi in batch) {
+        if (categories != null &&
+            categories.isNotEmpty &&
+            !categories.contains(poi.category)) {
+          continue;
+        }
+        final key =
+            '${poi.name.toLowerCase()}|${poi.position.latitude.toStringAsFixed(5)},${poi.position.longitude.toStringAsFixed(5)}';
+        if (seen.add(key)) candidates.add(poi);
+      }
+    }
+
+    final distance = const Distance();
+    final routeStep = route.length > 240 ? (route.length / 120).floor() : 1;
+
+    double distanceToRoute(OsmPoi poi) {
+      var nearest = double.infinity;
+      for (var i = 0; i < route.length; i += routeStep) {
+        final meters = distance(poi.position, route[i]);
+        if (meters < nearest) nearest = meters;
+        if (nearest < 40) break;
+      }
+      final lastMeters = distance(poi.position, route.last);
+      if (lastMeters < nearest) nearest = lastMeters;
+      return nearest;
+    }
+
+    final scored = <({OsmPoi poi, double distance})>[];
+    for (final poi in candidates) {
+      final meters = distanceToRoute(poi);
+      if (meters <= maxDistanceMeters) {
+        scored.add((poi: poi, distance: meters));
+      }
+    }
+
+    scored.sort((a, b) => a.distance.compareTo(b.distance));
+    return scored.take(60).map((e) => e.poi).toList(growable: false);
+  }
+
   Future<OsmRoadInfo> roadInfo(LatLng point) async {
     final q = '[out:json][timeout:12];('
         'way(around:50,${point.latitude},${point.longitude})["highway"];'
