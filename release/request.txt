@@ -1,0 +1,4 @@
+release: v1.2.0
+version: 1.2.0+13
+requested_at: 2026-10-06
+notes: signed APK/AAB release after green Analyze, Tests, APK compile, and verified offline map catalog.
