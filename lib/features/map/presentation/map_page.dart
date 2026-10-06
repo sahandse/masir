@@ -22,6 +22,7 @@ import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
 import 'package:masir/features/environment/presentation/environment_sheet.dart';
+import 'package:masir/features/place/presentation/place_details_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -1018,6 +1019,25 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _showDestinationDetails() {
+    final place = _destination;
+    if (place == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا یک مقصد انتخاب کنید.')),
+      );
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => PlaceDetailsSheet(
+        position: place.position,
+        fallbackTitle: place.title,
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1071,6 +1091,17 @@ class _MapPageState extends State<MapPage> {
                         await _loadTrafficZones();
                       }
                     : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline_rounded),
+                title: const Text('جزئیات مقصد'),
+                subtitle: const Text('آدرس، ساعت کاری، تلفن و اطلاعات واقعی OSM'),
+                onTap: _destination == null
+                    ? null
+                    : () {
+                        Navigator.pop(sheetContext);
+                        _showDestinationDetails();
+                      },
               ),
               ListTile(
                 leading: const Icon(Icons.wb_cloudy_outlined),
