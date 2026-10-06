@@ -62,6 +62,7 @@ class _MapPageState extends State<MapPage> {
   DateTime? _lastRerouteAt;
   DateTime? _lastRoadInfoAt;
   String? _offlineMapPath;
+  bool _usingOfflineRoute = false;
 
   bool _routingNow = false;
   bool _startingNavigation = false;
@@ -202,6 +203,7 @@ class _MapPageState extends State<MapPage> {
       _simulation = false;
       _liveNavigation = false;
       _maneuverIndex = 0;
+      _usingOfflineRoute = false;
     });
   }
 
@@ -228,6 +230,7 @@ class _MapPageState extends State<MapPage> {
         mode: _navPrefs.mode,
       );
       final result = options.first;
+      if (mounted) setState(() => _usingOfflineRoute = false);
       await _offlineRoutes.save(
         destination: _destination!.position,
         mode: _navPrefs.mode,
@@ -373,6 +376,7 @@ class _MapPageState extends State<MapPage> {
         _speedKmh = position.speed.isFinite && position.speed > 0
             ? position.speed * 3.6
             : 0;
+        _usingOfflineRoute = usingOfflineSnapshot;
       });
 
       _mapController.move(current, 17);
@@ -1206,6 +1210,29 @@ class _MapPageState extends State<MapPage> {
                 onGpsOrigin: _useGpsAsOrigin,
               ),
             ),
+          if (!navigating && _pickTarget == null)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 128,
+              right: 14,
+              child: Wrap(
+                spacing: 6,
+                children: [
+                  _MapStatusChip(
+                    icon: switch (_navPrefs.mode) {
+                      TravelMode.driving => Icons.directions_car_filled_outlined,
+                      TravelMode.walking => Icons.directions_walk_rounded,
+                      TravelMode.cycling => Icons.directions_bike_rounded,
+                    },
+                    label: _navPrefs.mode.label,
+                  ),
+                  if (_offlineMapPath != null)
+                    const _MapStatusChip(
+                      icon: Icons.offline_pin_rounded,
+                      label: 'نقشه آفلاین',
+                    ),
+                ],
+              ),
+            ),
           if (_pickTarget != null && !navigating)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 148,
@@ -1247,6 +1274,15 @@ class _MapPageState extends State<MapPage> {
                     .skip(_maneuverIndex)
                     .fold<double>(0, (sum, item) => sum + item.seconds),
                 onClose: _stopNavigation,
+              ),
+            ),
+          if (_liveNavigation && _usingOfflineRoute)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 128,
+              right: 14,
+              child: const _MapStatusChip(
+                icon: Icons.cloud_off_rounded,
+                label: 'مسیر ذخیره‌شده آفلاین',
               ),
             ),
           if (!navigating && _origin != null && _destination != null)
@@ -1335,6 +1371,51 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MapStatusChip extends StatelessWidget {
+  const _MapStatusChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 10,
+            offset: Offset(0, 3),
+            color: Color(0x18000000),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
