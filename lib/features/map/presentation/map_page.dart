@@ -16,6 +16,7 @@ import 'package:masir/core/services/voice_guidance_service.dart';
 import 'package:masir/features/search/models/place_result.dart';
 import 'package:masir/features/search/presentation/search_sheet.dart';
 import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
+import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -860,6 +861,15 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _showOfflineMaps() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const OfflineMapsSheet(),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -904,6 +914,15 @@ class _MapPageState extends State<MapPage> {
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _showCityGuide();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download_for_offline_outlined),
+                title: const Text('نقشه‌های آفلاین'),
+                subtitle: const Text('دانلود، بروزرسانی و حذف بسته‌های منطقه‌ای'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showOfflineMaps();
                 },
               ),
               ListTile(
