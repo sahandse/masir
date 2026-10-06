@@ -15,6 +15,7 @@ import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
 import 'package:masir/features/search/models/place_result.dart';
 import 'package:masir/features/search/presentation/search_sheet.dart';
+import 'package:masir/features/travel/presentation/city_guide_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -825,6 +826,40 @@ class _MapPageState extends State<MapPage> {
       ),
     );
   }
+  void _showCityGuide() {
+    final center = _gpsPoint ?? _destination?.position ?? _origin?.position;
+    if (center == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای نمایش راهنمای شهر، یک موقعیت یا مقصد انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => CityGuideSheet(
+        center: center,
+        onSelected: (place) {
+          setState(() {
+            _destination = place;
+            _route = null;
+            _alternatives = const [];
+            _routeIndex = 0;
+            _routeConfirmed = false;
+            _simulation = false;
+            _liveNavigation = false;
+            _maneuverIndex = 0;
+          });
+          _mapController.move(place.position, 15);
+        },
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -860,6 +895,15 @@ class _MapPageState extends State<MapPage> {
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _loadPois();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.travel_explore_rounded),
+                title: const Text('راهنمای شهر'),
+                subtitle: const Text('دیدنی‌ها، اقامت، غذا، خرید و خدمات واقعی OSM'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showCityGuide();
                 },
               ),
               ListTile(
