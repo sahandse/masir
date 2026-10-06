@@ -231,12 +231,7 @@ class OfflineMapCatalogService {
   }
 
   Future<String> _sha256(File file) async {
-    final sink = AccumulatorSink<Digest>();
-    final input = sha256.startChunkedConversion(sink);
-    await for (final chunk in file.openRead()) {
-      input.add(chunk);
-    }
-    input.close();
-    return sink.events.single.toString();
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
   }
 }
