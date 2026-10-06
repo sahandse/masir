@@ -91,6 +91,40 @@ class OfflinePlaceCacheService {
     return scored.take(limit).map((e) => e.place).toList(growable: false);
   }
 
+  Future<List<PlaceResult>> nearby(
+    LatLng center, {
+    double radiusMeters = 8000,
+    int limit = 120,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = await _loadMap(prefs);
+    final distance = const Distance();
+    final items = <({PlaceResult place, double meters})>[];
+
+    for (final value in current.values) {
+      final item = value as Map<String, dynamic>;
+      final lat = (item['lat'] as num?)?.toDouble();
+      final lon = (item['lon'] as num?)?.toDouble();
+      if (lat == null || lon == null) continue;
+
+      final position = LatLng(lat, lon);
+      final meters = distance(center, position);
+      if (meters > radiusMeters) continue;
+
+      items.add((
+        place: PlaceResult(
+          title: item['title'] as String? ?? 'مکان ذخیره‌شده',
+          subtitle: item['subtitle'] as String? ?? 'ذخیره آفلاین',
+          position: position,
+        ),
+        meters: meters,
+      ));
+    }
+
+    items.sort((a, b) => a.meters.compareTo(b.meters));
+    return items.take(limit).map((e) => e.place).toList(growable: false);
+  }
+
   Future<int> count() async {
     final prefs = await SharedPreferences.getInstance();
     final current = await _loadMap(prefs);
