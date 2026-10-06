@@ -210,6 +210,7 @@ class _MapPageState extends State<MapPage> {
         useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
         useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
         useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
+        mode: _navPrefs.mode,
       );
       final result = options.first;
       await _saved.addHistory(_destination!);
@@ -306,6 +307,7 @@ class _MapPageState extends State<MapPage> {
           useHighways: _navPrefs.avoidHighways ? 0.0 : 1.0,
           useTolls: _navPrefs.avoidTolls ? 0.0 : 1.0,
           useFerries: _navPrefs.avoidFerries ? 0.0 : 0.5,
+          mode: _navPrefs.mode,
         );
       } catch (_) {
         if (!mounted) return;
@@ -338,7 +340,11 @@ class _MapPageState extends State<MapPage> {
 
       _mapController.move(current, 17);
 
-      await _session.save(destination: destination, viaPoints: _viaPoints);
+      await _session.save(
+        destination: destination,
+        viaPoints: _viaPoints,
+        mode: _navPrefs.mode,
+      );
       if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
         unawaited(_voice.speak(_persian.instruction(liveRoute.maneuvers.first)));
       }
@@ -643,6 +649,35 @@ class _MapPageState extends State<MapPage> {
               const ListTile(
                 title: Text('تنظیمات مسیر'),
                 subtitle: Text('همه تنظیمات فقط روی همین دستگاه ذخیره می‌شوند'),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: SegmentedButton<TravelMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: TravelMode.driving,
+                      icon: Icon(Icons.directions_car_filled_outlined),
+                      label: Text('خودرو'),
+                    ),
+                    ButtonSegment(
+                      value: TravelMode.walking,
+                      icon: Icon(Icons.directions_walk_rounded),
+                      label: Text('پیاده'),
+                    ),
+                    ButtonSegment(
+                      value: TravelMode.cycling,
+                      icon: Icon(Icons.directions_bike_rounded),
+                      label: Text('دوچرخه'),
+                    ),
+                  ],
+                  selected: {draft.mode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (values) {
+                    setSheetState(() {
+                      draft = draft.copyWith(mode: values.first);
+                    });
+                  },
+                ),
               ),
               SwitchListTile(
                 value: draft.avoidTolls,
