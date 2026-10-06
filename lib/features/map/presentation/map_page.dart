@@ -221,15 +221,15 @@ class _MapPageState extends State<MapPage> {
     _activeTrafficZoneId = nextId;
     if (active == null || !mounted) return;
 
+    final suffix = active.description == null
+        ? ''
+        : ' · ${active.description}';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'وارد \${active.name} شدی\${active.description == null ? '' : ' · \${active.description}'}',
-        ),
+        content: Text('وارد ${active.name} شدی$suffix'),
         duration: const Duration(seconds: 5),
       ),
-    );
-  }
+    );  }
 
   Future<void> _loadReportState() async {
     final pending = await _reports.pendingCount();
