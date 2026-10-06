@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:masir/core/services/offline_place_cache_service.dart';
+import 'package:masir/features/search/models/place_result.dart';
 
 enum CityGuideSection {
   sights,
@@ -50,6 +52,7 @@ class CityGuideService {
             );
 
   final Dio _dio;
+  final _offlineCache = OfflinePlaceCacheService();
 
   static const _endpoints = <String>[
     'https://overpass-api.de/api/interpreter',
@@ -112,7 +115,17 @@ class CityGuideService {
       );
     }
 
-    return out.take(180).toList(growable: false);
+    final items = out.take(180).toList(growable: false);
+    await _offlineCache.merge(
+      items.map(
+        (place) => PlaceResult(
+          title: place.name,
+          subtitle: '${place.section.label} · ${place.category}',
+          position: place.position,
+        ),
+      ),
+    );
+    return items;
   }
 
   Future<Response<Map<String, dynamic>>> _post(String query) async {
