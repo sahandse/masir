@@ -13,6 +13,7 @@ import 'package:masir/core/services/persian_guidance_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/report_service.dart';
 import 'package:masir/core/services/traffic_zone_service.dart';
+import 'package:masir/core/services/map_feedback_service.dart';
 import 'package:masir/core/services/saved_places_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
@@ -23,6 +24,7 @@ import 'package:masir/features/offline/presentation/offline_maps_sheet.dart';
 import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
 import 'package:masir/features/environment/presentation/environment_sheet.dart';
 import 'package:masir/features/place/presentation/place_details_sheet.dart';
+import 'package:masir/features/map_feedback/presentation/map_feedback_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -44,6 +46,7 @@ class _MapPageState extends State<MapPage> {
   final _osm = OsmDataService();
   final _reports = ReportService();
   final _trafficZoneService = TrafficZoneService();
+  final _mapFeedback = MapFeedbackService();
   final _saved = SavedPlacesService();
   final _voice = VoiceGuidanceService();
   final _offlineMaps = OfflineMapCatalogService();
@@ -61,6 +64,7 @@ class _MapPageState extends State<MapPage> {
   DateTime? _lastReportRefreshAt;
   List<TrafficZone> _trafficZones = const [];
   String? _activeTrafficZoneId;
+  int _pendingMapFeedback = 0;
   LatLng? _gpsPoint;
   double _speedKmh = 0;
   int? _maxSpeedKmh;
@@ -89,6 +93,7 @@ class _MapPageState extends State<MapPage> {
     _loadOfflineMap();
     _loadReportState();
     _loadTrafficZones();
+    _loadMapFeedbackState();
     _restoreNavigationSession();
   }
 
@@ -132,6 +137,34 @@ class _MapPageState extends State<MapPage> {
     final path = await _offlineMaps.activeMapPath();
     if (!mounted) return;
     setState(() => _offlineMapPath = path);
+  }
+
+  Future<void> _loadMapFeedbackState() async {
+    if (_mapFeedback.isConfigured) {
+      await _mapFeedback.syncPending();
+    }
+    final pending = await _mapFeedback.pendingCount();
+    if (!mounted) return;
+    setState(() => _pendingMapFeedback = pending);
+  }
+
+  void _showMapFeedback() {
+    final position = _destination?.position ?? _gpsPoint ?? _origin?.position;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای اصلاح نقشه، ابتدا یک موقعیت یا مقصد انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => MapFeedbackSheet(position: position),
+    ).then((_) => _loadMapFeedbackState());
   }
 
   Future<void> _loadTrafficZones() async {
@@ -1091,6 +1124,19 @@ class _MapPageState extends State<MapPage> {
                         await _loadTrafficZones();
                       }
                     : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_location_alt_outlined),
+                title: const Text('اصلاح نقشه'),
+                subtitle: Text(
+                  _pendingMapFeedback > 0
+                      ? '\${_pendingMapFeedback} پیشنهاد در صف ارسال'
+                      : 'نام، مکان، مسیر بسته یا محدودیت دسترسی اشتباه',
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showMapFeedback();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.info_outline_rounded),
