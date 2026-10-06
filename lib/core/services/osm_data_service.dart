@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:masir/core/services/offline_place_cache_service.dart';
+import 'package:masir/features/search/models/place_result.dart';
 
 class OsmPoi {
   const OsmPoi({
@@ -44,6 +46,7 @@ class OsmDataService {
             );
 
   final Dio _dio;
+  final _offlineCache = OfflinePlaceCacheService();
 
   static const _overpassEndpoints = <String>[
     'https://overpass-api.de/api/interpreter',
@@ -93,6 +96,15 @@ class OsmDataService {
 
     final items = out.take(80).toList(growable: false);
     _poiCache[cacheKey] = _PoiCache(DateTime.now(), items);
+    await _offlineCache.merge(
+      items.map(
+        (poi) => PlaceResult(
+          title: poi.name,
+          subtitle: _persianCategoryName(poi.category),
+          position: poi.position,
+        ),
+      ),
+    );
     if (_poiCache.length > 40) {
       final oldest = _poiCache.entries.toList()
         ..sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
