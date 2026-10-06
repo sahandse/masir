@@ -1,2 +1,4 @@
 Build requested: 2026-10-06
 Purpose: generate verified Iran and major-city PMTiles data packages for Masir v1.2.
+
+Retry: CLI binary name fixed
