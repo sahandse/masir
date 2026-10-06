@@ -142,6 +142,7 @@ class _CityGuideSheetState extends State<CityGuideSheet> {
                         title: Text(place.name),
                         subtitle: Text(
                           '${_categoryLabel(place.category)} · ${_distanceLabel(place)}'
+                          '${place.offline ? ' · آفلاین' : ''}'
                           '${opening?.isNotEmpty == true ? ' · $opening' : ''}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
