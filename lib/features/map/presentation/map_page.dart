@@ -25,6 +25,7 @@ import 'package:masir/features/offline/presentation/offline_pmtiles_layer.dart';
 import 'package:masir/features/environment/presentation/environment_sheet.dart';
 import 'package:masir/features/place/presentation/place_details_sheet.dart';
 import 'package:masir/features/map_feedback/presentation/map_feedback_sheet.dart';
+import 'package:masir/features/transit/presentation/transit_nearby_sheet.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -1071,6 +1072,36 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  void _showTransitNearby() {
+    final center = _gpsPoint ?? _destination?.position ?? _origin?.position;
+    if (center == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('برای نمایش حمل‌ونقل عمومی، یک موقعیت انتخاب کنید.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => TransitNearbySheet(
+        center: center,
+        onSelected: (place) {
+          setState(() {
+            _destination = place;
+            _route = null;
+            _alternatives = const [];
+            _routeConfirmed = false;
+          });
+          _mapController.move(place.position, 16);
+        },
+      ),
+    );
+  }
+
   void _showToolsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1148,6 +1179,15 @@ class _MapPageState extends State<MapPage> {
                         Navigator.pop(sheetContext);
                         _showDestinationDetails();
                       },
+              ),
+              ListTile(
+                leading: const Icon(Icons.directions_transit_outlined),
+                title: const Text('حمل‌ونقل عمومی نزدیک'),
+                subtitle: const Text('مترو، ورودی مترو و ایستگاه اتوبوس واقعی OSM'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showTransitNearby();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.wb_cloudy_outlined),
