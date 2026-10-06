@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:masir/core/services/navigation_preferences_service.dart';
 
 class RouteLane {
   const RouteLane({
@@ -88,6 +89,7 @@ class ValhallaService {
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
+    TravelMode mode = TravelMode.driving,
   }) async {
     if (!isConfigured) {
       throw StateError('VALHALLA_BASE_URL is not configured');
@@ -100,14 +102,15 @@ class ValhallaService {
           {'lat': via.latitude, 'lon': via.longitude, 'type': 'break'},
         {'lat': to.latitude, 'lon': to.longitude},
       ],
-      'costing': 'auto',
-      'costing_options': {
-        'auto': {
-          'use_highways': useHighways,
-          'use_tolls': useTolls,
-          'use_ferry': useFerries,
+      'costing': mode.valhallaCosting,
+      if (mode == TravelMode.driving)
+        'costing_options': {
+          'auto': {
+            'use_highways': useHighways,
+            'use_tolls': useTolls,
+            'use_ferry': useFerries,
+          },
         },
-      },
       'directions_options': {
         'units': 'kilometers',
         'language': 'en-US',
@@ -185,7 +188,19 @@ class ValhallaService {
     double useHighways = 1.0,
     double useTolls = 1.0,
     double useFerries = 0.5,
+    TravelMode mode = TravelMode.driving,
   }) async {
+    if (mode != TravelMode.driving) {
+      return [
+        await route(
+          from,
+          to,
+          viaPoints: viaPoints,
+          mode: mode,
+        ),
+      ];
+    }
+
     final results = await Future.wait([
       route(
         from,
@@ -194,6 +209,7 @@ class ValhallaService {
         useHighways: useHighways,
         useTolls: useTolls,
         useFerries: useFerries,
+        mode: mode,
       ),
       route(
         from,
@@ -202,6 +218,7 @@ class ValhallaService {
         useHighways: useHighways < 0.5 ? useHighways : 0.35,
         useTolls: useTolls,
         useFerries: useFerries,
+        mode: mode,
       ),
       route(
         from,
@@ -210,6 +227,7 @@ class ValhallaService {
         useHighways: useHighways,
         useTolls: useTolls < 0.5 ? useTolls : 0.0,
         useFerries: useFerries,
+        mode: mode,
       ),
     ]);
 
