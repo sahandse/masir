@@ -74,7 +74,7 @@ class OfflineMapCatalogService {
   static const catalogUrl = String.fromEnvironment(
     'MASIR_OFFLINE_CATALOG_URL',
     defaultValue:
-        'https://raw.githubusercontent.com/sahandse/masir/main/offline_maps/catalog.json',
+        'https://raw.githubusercontent.com/sahandse/masir/main/offline/catalog.json',
   );
   static const _activeRegionKey = '__active_region_id';
 
