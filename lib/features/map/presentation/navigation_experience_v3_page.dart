@@ -42,6 +42,8 @@ class _NavigationExperienceV3PageState
   Timer? _sessionTimer;
   DateTime? _lastRoadRefresh;
   DateTime? _lastRerouteAt;
+  LatLng? _lastCurrent;
+  bool _voiceMuted = false;
   String? _lastSessionKey;
   final Set<String> _spokenStages = <String>{};
 
@@ -63,6 +65,7 @@ class _NavigationExperienceV3PageState
     _positionSubscription = _location.positionStream().listen((position) {
       if (!mounted) return;
       final current = LatLng(position.latitude, position.longitude);
+      _lastCurrent = current;
       final speed = position.speed.isFinite && position.speed > 0
           ? position.speed * 3.6
           : 0.0;
@@ -178,6 +181,7 @@ class _NavigationExperienceV3PageState
     NavigationProgress progress,
     int index,
   ) async {
+    if (_voiceMuted) return;
     if (route.maneuvers.isEmpty || index >= route.maneuvers.length) return;
     final stage = _progressService.promptStageForDistance(
       progress.distanceToNextManeuverMeters,
@@ -286,6 +290,55 @@ class _NavigationExperienceV3PageState
     );
   }
 
+  Future<void> _forceReroute() async {
+    final current = _lastCurrent;
+    final session = _controller.state.session;
+    if (current == null || session == null || _controller.state.rerouting) {
+      return;
+    }
+
+    _controller.setRerouting(true);
+    try {
+      final route = await _routing.route(
+        current,
+        session.destination.position,
+        viaPoints: session.viaPoints.map((e) => e.position).toList(),
+        mode: session.mode,
+      );
+      await _offlineRoutes.save(
+        destination: session.destination.position,
+        mode: session.mode,
+        route: route,
+      );
+      if (!mounted || _controller.state.session == null) return;
+      _spokenStages.clear();
+      _controller.setRoute(route);
+      if (!_voiceMuted) {
+        await _voice.speak('برگشت به مسیر انجام شد', force: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('محاسبه دوباره مسیر انجام نشد.')),
+      );
+    } finally {
+      _controller.setRerouting(false);
+    }
+  }
+
+  Future<void> _toggleVoice() async {
+    setState(() => _voiceMuted = !_voiceMuted);
+    if (_voiceMuted) await _voice.stop();
+  }
+
+  Future<void> _stopDriverNavigation() async {
+    await _voice.stop();
+    await _session.clear();
+    _lastSessionKey = null;
+    _spokenStages.clear();
+    _controller.clearSession();
+  }
+
   @override
   void dispose() {
     _sessionTimer?.cancel();
@@ -301,25 +354,70 @@ class _NavigationExperienceV3PageState
       value: _controller,
       child: BlocBuilder<NavigationController, NavigationViewState>(
         builder: (context, state) {
+          final active = state.session != null && !state.arrived;
+          final offRoute = state.progress?.offRouteMeters ?? 0;
+
           return Stack(
             children: [
-              const MapPage(),
-              if (state.session != null && !state.arrived)
+              const MapPage(showNavigationChrome: false),
+              if (active)
                 Positioned(
-                  top: MediaQuery.paddingOf(context).top + 8,
-                  left: 10,
-                  right: 10,
+                  top: MediaQuery.paddingOf(context).top + 6,
+                  left: 6,
+                  right: 6,
                   child: _DriverBanner(
                     state: state,
                   ),
                 ),
-              if (state.session != null && !state.arrived)
+              if (active && offRoute >= 45)
                 Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: MediaQuery.paddingOf(context).bottom + 12,
+                  left: 18,
+                  bottom: MediaQuery.paddingOf(context).bottom + 136,
+                  child: FilledButton.icon(
+                    onPressed: state.rerouting ? null : _forceReroute,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1976D2),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 13,
+                      ),
+                    ),
+                    icon: state.rerouting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.navigation_rounded),
+                    label: const Text(
+                      'برگرد به مسیر',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              if (active && state.roadInfo?.maxSpeedKmh != null)
+                Positioned(
+                  right: 16,
+                  top: MediaQuery.paddingOf(context).top + 194,
+                  child: _SpeedLimitBadge(
+                    limit: state.roadInfo!.maxSpeedKmh!,
+                    speed: state.speedKmh,
+                  ),
+                ),
+              if (active)
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  bottom: MediaQuery.paddingOf(context).bottom + 8,
                   child: _DriverBottomBar(
                     state: state,
+                    muted: _voiceMuted,
+                    onToggleVoice: _toggleVoice,
+                    onStop: _stopDriverNavigation,
                     onSearchAlongRoute: state.route == null
                         ? null
                         : () => _openAlongRouteSearch(state.route!),
@@ -335,11 +433,11 @@ class _NavigationExperienceV3PageState
 
 class _DriverBanner extends StatelessWidget {
   const _DriverBanner({required this.state});
+
   final NavigationViewState state;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final current = state.currentManeuver;
     final next = state.nextManeuver;
     final progress = state.progress;
@@ -350,94 +448,127 @@ class _DriverBanner extends StatelessWidget {
         distance <= 700;
 
     return Material(
-      elevation: 9,
-      color: theme.colorScheme.surface.withValues(alpha: 0.97),
-      borderRadius: BorderRadius.circular(22),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 11, 12, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+      elevation: 12,
+      color: const Color(0xFF101012),
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            child: Row(
+              textDirection: TextDirection.rtl,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 62,
-                  height: 62,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Icon(
-                    _maneuverIcon(current?.type),
-                    size: 38,
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
+                Icon(
+                  _maneuverIcon(current?.type),
+                  size: 72,
+                  color: Colors.white,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
                         state.rerouting
-                            ? 'محاسبه مسیر جدید…'
+                            ? 'مسیر جدید…'
                             : state.routing && current == null
-                                ? 'آماده‌سازی مسیر…'
+                                ? 'در حال آماده‌سازی…'
                                 : _formatDistance(distance),
-                        style: theme.textTheme.headlineSmall?.copyWith(
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 31,
                           fontWeight: FontWeight.w900,
+                          height: 1.05,
                         ),
                       ),
+                      const SizedBox(height: 7),
                       Text(
                         current?.primaryStreetName ??
                             _maneuverTitle(current?.type),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          color: Color(0xFF78C7F4),
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
-                      if (current?.exitLabel case final exit?)
+                      if (current?.exitLabel case final exit?) ...[
+                        const SizedBox(height: 7),
                         _ExitBadge(text: exit),
+                      ],
                     ],
                   ),
                 ),
               ],
             ),
-            if (showLanes) ...[
-              const SizedBox(height: 9),
-              _LaneGuidance(lanes: current.lanes),
-            ],
-            if (next != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(13),
+          ),
+          if (showLanes)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              child: _LaneGuidance(lanes: current.lanes),
+            ),
+          if (next != null)
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Container(
+                margin: const EdgeInsets.only(left: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2A292F),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(18),
+                    bottomRight: Radius.circular(18),
+                  ),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  textDirection: TextDirection.rtl,
                   children: [
-                    Icon(_maneuverIcon(next.type), size: 18),
-                    const SizedBox(width: 7),
-                    Expanded(
+                    const Text(
+                      'و بعد',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Icon(
+                      _maneuverIcon(next.type),
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 185),
                       child: Text(
-                        'سپس ${next.primaryStreetName ?? _maneuverTitle(next.type)}',
+                        next.primaryStreetName ??
+                            _maneuverTitle(next.type),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ],
-        ),
+            ),
+          const SizedBox(height: 5),
+        ],
       ),
     );
   }
@@ -474,12 +605,11 @@ class _LaneGuidance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        color: const Color(0xFF1C1B20),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -488,25 +618,23 @@ class _LaneGuidance extends StatelessWidget {
           for (final lane in lanes.take(7))
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: lane.active
-                    ? theme.colorScheme.primaryContainer
-                    : Colors.transparent,
+                    ? const Color(0xFF8B2CF5)
+                    : const Color(0xFF2A292F),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: lane.active
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outlineVariant,
+                      ? const Color(0xFFB77CFF)
+                      : const Color(0xFF4B4950),
                 ),
               ),
               child: Icon(
                 _laneIcon(lane.directions),
-                size: 23,
-                color: lane.active
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outline,
+                size: 24,
+                color: lane.active ? Colors.white : Colors.white54,
               ),
             ),
         ],
@@ -518,30 +646,116 @@ class _LaneGuidance extends StatelessWidget {
 class _DriverBottomBar extends StatelessWidget {
   const _DriverBottomBar({
     required this.state,
+    required this.muted,
+    required this.onToggleVoice,
+    required this.onStop,
     required this.onSearchAlongRoute,
   });
 
   final NavigationViewState state;
+  final bool muted;
+  final VoidCallback onToggleVoice;
+  final VoidCallback onStop;
   final VoidCallback? onSearchAlongRoute;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final p = state.progress;
+    final remainingMinutes =
+        p == null ? null : (p.remainingSeconds / 60).round();
     final road = state.roadInfo;
-    final limit = road?.maxSpeedKmh;
-    final speeding = limit != null && state.speedKmh > limit + 4;
 
     return Material(
-      elevation: 8,
-      color: theme.colorScheme.surface.withValues(alpha: 0.97),
-      borderRadius: BorderRadius.circular(20),
+      elevation: 14,
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF17171A)
+          : Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (state.alerts.isNotEmpty)
+            Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _DriverSquareButton(
+                  icon: muted
+                      ? Icons.volume_off_rounded
+                      : Icons.volume_up_rounded,
+                  tooltip: muted ? 'فعال کردن صدا' : 'بی‌صدا',
+                  onPressed: onToggleVoice,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          const Text(
+                            'رسیدن',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 9),
+                          Text(
+                            p == null ? '—' : _clock(p.arrivalTime),
+                            style: const TextStyle(
+                              fontSize: 27,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        p == null
+                            ? 'در حال محاسبه…'
+                            : '${p.remainingKilometers.toStringAsFixed(1)} کیلومتر   ${remainingMinutes ?? 0} دقیقه',
+                        textDirection: TextDirection.rtl,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (road?.roadName?.isNotEmpty == true)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            [road?.roadName, road?.roadRef]
+                                .whereType<String>()
+                                .where((e) => e.isNotEmpty)
+                                .join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textDirection: TextDirection.rtl,
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _DriverSquareButton(
+                  icon: Icons.search_rounded,
+                  tooltip: 'جستجو در مسیر',
+                  onPressed: onSearchAlongRoute,
+                ),
+              ],
+            ),
+            if (state.alerts.isNotEmpty) ...[
+              const SizedBox(height: 8),
               SizedBox(
                 height: 30,
                 child: ListView.separated(
@@ -552,51 +766,22 @@ class _DriverBottomBar extends StatelessWidget {
                     final alert = state.alerts[index];
                     return Chip(
                       visualDensity: VisualDensity.compact,
-                      avatar: Icon(_alertIcon(alert.kind), size: 16),
+                      avatar: Icon(_alertIcon(alert.kind), size: 15),
                       label: Text(alert.label),
                     );
                   },
                 ),
               ),
-            Row(
-              children: [
-                _Metric(
-                  value: p == null ? '—' : _clock(p.arrivalTime),
-                  label: 'رسیدن',
-                ),
-                const _VerticalDivider(),
-                _Metric(
-                  value: p == null
-                      ? '—'
-                      : '${p.remainingKilometers.toStringAsFixed(1)} km',
-                  label: 'باقی‌مانده',
-                ),
-                const _VerticalDivider(),
-                _Metric(
-                  value: '${state.speedKmh.round()}',
-                  label: limit == null ? 'km/h' : 'حد $limit',
-                  emphasis: speeding,
-                ),
-                IconButton.filledTonal(
-                  onPressed: onSearchAlongRoute,
-                  tooltip: 'جستجو در مسیر',
-                  icon: const Icon(Icons.search_rounded),
-                ),
-              ],
-            ),
-            if (road?.roadName?.isNotEmpty == true)
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  [road?.roadName, road?.roadRef]
-                      .whereType<String>()
-                      .where((e) => e.isNotEmpty)
-                      .join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium,
-                ),
+            ],
+            const SizedBox(height: 2),
+            TextButton.icon(
+              onPressed: onStop,
+              icon: const Icon(Icons.close_rounded, size: 18),
+              label: const Text('پایان مسیریابی'),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
               ),
+            ),
           ],
         ),
       ),
@@ -604,45 +789,79 @@ class _DriverBottomBar extends StatelessWidget {
   }
 }
 
-class _Metric extends StatelessWidget {
-  const _Metric({
-    required this.value,
-    required this.label,
-    this.emphasis = false,
+class _DriverSquareButton extends StatelessWidget {
+  const _DriverSquareButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
   });
-  final String value;
-  final String label;
-  final bool emphasis;
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: emphasis ? theme.colorScheme.error : null,
-            ),
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(
+            width: 58,
+            height: 58,
+            child: Icon(icon, size: 29),
           ),
-          Text(label, style: theme.textTheme.labelSmall),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _VerticalDivider extends StatelessWidget {
-  const _VerticalDivider();
+class _SpeedLimitBadge extends StatelessWidget {
+  const _SpeedLimitBadge({
+    required this.limit,
+    required this.speed,
+  });
+
+  final int limit;
+  final double speed;
+
   @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 30,
-        color: Theme.of(context).colorScheme.outlineVariant,
-      );
+  Widget build(BuildContext context) {
+    final speeding = speed > limit + 4;
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        border: Border.all(
+          color: speeding ? Colors.red : const Color(0xFF2B2B2B),
+          width: 4,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 10,
+            offset: Offset(0, 3),
+            color: Color(0x33000000),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$limit',
+        style: TextStyle(
+          color: speeding ? Colors.red : Colors.black,
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
 }
 
 class _AlongRouteSheet extends StatefulWidget {

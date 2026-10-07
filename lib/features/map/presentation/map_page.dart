@@ -33,7 +33,12 @@ import 'package:masir/features/route/presentation/along_route_poi_sheet.dart';
 enum _PickTarget { origin, destination }
 
 class MapPage extends StatefulWidget {
-  const MapPage({super.key});
+  const MapPage({
+    super.key,
+    this.showNavigationChrome = true,
+  });
+
+  final bool showNavigationChrome;
 
   @override
   State<MapPage> createState() => _MapPageState();
@@ -1546,23 +1551,42 @@ class _MapPageState extends State<MapPage> {
               if (_alternatives.isNotEmpty)
                 PolylineLayer(
                   polylines: [
+                    if (navigating)
+                      Polyline(
+                        points: _alternatives[_routeIndex].points,
+                        strokeWidth: 10,
+                        color: const Color(0xFF2B153E),
+                      ),
                     for (var i = 0; i < _alternatives.length; i++)
                       Polyline(
                         points: _alternatives[i].points,
-                        strokeWidth: i == _routeIndex ? 7 : 4,
+                        strokeWidth: i == _routeIndex ? (navigating ? 7 : 7) : 4,
                         color: i == _routeIndex
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outline.withValues(alpha: 0.55),
+                            ? (navigating
+                                ? const Color(0xFF8B2CF5)
+                                : Theme.of(context).colorScheme.primary)
+                            : Theme.of(context)
+                                .colorScheme
+                                .outline
+                                .withValues(alpha: 0.55),
                       ),
                   ],
                 )
               else if (route != null)
                 PolylineLayer(
                   polylines: [
+                    if (navigating)
+                      Polyline(
+                        points: route.points,
+                        strokeWidth: 10,
+                        color: const Color(0xFF2B153E),
+                      ),
                     Polyline(
                       points: route.points,
-                      strokeWidth: 6,
-                      color: Theme.of(context).colorScheme.primary,
+                      strokeWidth: navigating ? 7 : 6,
+                      color: navigating
+                          ? const Color(0xFF8B2CF5)
+                          : Theme.of(context).colorScheme.primary,
                     ),
                   ],
                 ),
@@ -1608,9 +1632,9 @@ class _MapPageState extends State<MapPage> {
                   if (_gpsPoint != null)
                     Marker(
                       point: _gpsPoint!,
-                      width: 46,
-                      height: 46,
-                      child: const _GpsMarker(),
+                      width: navigating ? 58 : 46,
+                      height: navigating ? 58 : 46,
+                      child: _GpsMarker(driving: navigating),
                     ),
                 ],
               ),
@@ -1683,7 +1707,7 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
-          if (navigating && route != null && route.maneuvers.isNotEmpty)
+          if (widget.showNavigationChrome && navigating && route != null && route.maneuvers.isNotEmpty)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 12,
               left: 12,
@@ -1706,7 +1730,7 @@ class _MapPageState extends State<MapPage> {
                 onClose: _stopNavigation,
               ),
             ),
-          if (_liveNavigation && _usingOfflineRoute)
+          if (widget.showNavigationChrome && _liveNavigation && _usingOfflineRoute)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 128,
               right: 14,
@@ -1735,7 +1759,7 @@ class _MapPageState extends State<MapPage> {
                 onShare: _shareRoute,
               ),
             ),
-          if (_simulation && route != null)
+          if (widget.showNavigationChrome && _simulation && route != null)
             Positioned(
               left: 12,
               right: 12,
@@ -1758,7 +1782,7 @@ class _MapPageState extends State<MapPage> {
                 child: const Icon(Icons.tune_rounded),
               ),
             ),
-          if (_liveNavigation)
+          if (widget.showNavigationChrome && _liveNavigation)
             Positioned(
               right: 12,
               top: MediaQuery.paddingOf(context).top + 150,
@@ -1787,7 +1811,7 @@ class _MapPageState extends State<MapPage> {
                 ],
               ),
             ),
-          if (_liveNavigation)
+          if (widget.showNavigationChrome && _liveNavigation)
             Positioned(
               left: 12,
               right: 12,
@@ -2337,18 +2361,61 @@ class _MapMarker extends StatelessWidget {
 }
 
 class _GpsMarker extends StatelessWidget {
-  const _GpsMarker();
+  const _GpsMarker({this.driving = false});
+
+  final bool driving;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 4),
-        boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
-      ),
-      child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 21),
+    if (!driving) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 4),
+          boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
+        ),
+        child: const Icon(
+          Icons.navigation_rounded,
+          color: Colors.white,
+          size: 21,
+        ),
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 54,
+          height: 54,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(0x30000000),
+          ),
+        ),
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1677C8),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: const [
+              BoxShadow(
+                blurRadius: 9,
+                offset: Offset(0, 3),
+                color: Color(0x55000000),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.navigation_rounded,
+            color: Colors.white,
+            size: 28,
+          ),
+        ),
+      ],
     );
   }
 }
