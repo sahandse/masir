@@ -605,12 +605,11 @@ class _LaneGuidance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        color: const Color(0xFF1C1B20),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -619,25 +618,23 @@ class _LaneGuidance extends StatelessWidget {
           for (final lane in lanes.take(7))
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: lane.active
-                    ? theme.colorScheme.primaryContainer
-                    : Colors.transparent,
+                    ? const Color(0xFF8B2CF5)
+                    : const Color(0xFF2A292F),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: lane.active
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outlineVariant,
+                      ? const Color(0xFFB77CFF)
+                      : const Color(0xFF4B4950),
                 ),
               ),
               child: Icon(
                 _laneIcon(lane.directions),
-                size: 23,
-                color: lane.active
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outline,
+                size: 24,
+                color: lane.active ? Colors.white : Colors.white54,
               ),
             ),
         ],
