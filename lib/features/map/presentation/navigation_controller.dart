@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:masir/core/services/navigation_progress_service.dart';
 import 'package:masir/core/services/navigation_session_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
@@ -15,6 +16,9 @@ class NavigationViewState extends Equatable {
     this.alerts = const [],
     this.maneuverIndex = 0,
     this.speedKmh = 0,
+    this.currentPosition,
+    this.heading = 0,
+    this.reportsRevision = 0,
     this.routing = false,
     this.rerouting = false,
     this.arrived = false,
@@ -27,6 +31,9 @@ class NavigationViewState extends Equatable {
   final List<RouteAlert> alerts;
   final int maneuverIndex;
   final double speedKmh;
+  final LatLng? currentPosition;
+  final double heading;
+  final int reportsRevision;
   final bool routing;
   final bool rerouting;
   final bool arrived;
@@ -57,6 +64,9 @@ class NavigationViewState extends Equatable {
     List<RouteAlert>? alerts,
     int? maneuverIndex,
     double? speedKmh,
+    LatLng? currentPosition,
+    double? heading,
+    int? reportsRevision,
     bool? routing,
     bool? rerouting,
     bool? arrived,
@@ -69,6 +79,9 @@ class NavigationViewState extends Equatable {
       alerts: alerts ?? this.alerts,
       maneuverIndex: maneuverIndex ?? this.maneuverIndex,
       speedKmh: speedKmh ?? this.speedKmh,
+      currentPosition: currentPosition ?? this.currentPosition,
+      heading: heading ?? this.heading,
+      reportsRevision: reportsRevision ?? this.reportsRevision,
       routing: routing ?? this.routing,
       rerouting: rerouting ?? this.rerouting,
       arrived: arrived ?? this.arrived,
@@ -86,6 +99,10 @@ class NavigationViewState extends Equatable {
         alerts,
         maneuverIndex,
         speedKmh.round(),
+        currentPosition?.latitude,
+        currentPosition?.longitude,
+        heading.round(),
+        reportsRevision,
         routing,
         rerouting,
         arrived,
@@ -121,6 +138,12 @@ class NavigationController extends Cubit<NavigationViewState> {
         clearProgress: true,
       ));
   void setSpeed(double kmh) => emit(state.copyWith(speedKmh: kmh));
+  void setPosition(LatLng position, double heading) => emit(
+        state.copyWith(currentPosition: position, heading: heading),
+      );
+  void bumpReportsRevision() => emit(
+        state.copyWith(reportsRevision: state.reportsRevision + 1),
+      );
   void setRoadInfo(OsmRoadInfo value) => emit(state.copyWith(roadInfo: value));
   void setAlerts(List<RouteAlert> value) => emit(state.copyWith(alerts: value));
   void setArrived() => emit(state.copyWith(arrived: true, rerouting: false));

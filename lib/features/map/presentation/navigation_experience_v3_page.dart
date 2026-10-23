@@ -9,12 +9,15 @@ import 'package:masir/core/services/navigation_session_service.dart';
 import 'package:masir/core/services/offline_route_store_service.dart';
 import 'package:masir/core/services/osm_data_service.dart';
 import 'package:masir/core/services/persian_guidance_service.dart';
+import 'package:masir/core/services/report_corridor_service.dart';
+import 'package:masir/core/services/report_service.dart';
 import 'package:masir/core/services/route_awareness_service.dart';
 import 'package:masir/core/services/route_poi_service.dart';
 import 'package:masir/core/services/valhalla_service.dart';
 import 'package:masir/core/services/voice_guidance_service.dart';
 import 'package:masir/features/map/presentation/map_page.dart';
 import 'package:masir/features/map/presentation/navigation_controller.dart';
+import 'package:masir/features/report/presentation/report_ui.dart';
 
 class NavigationExperienceV3Page extends StatefulWidget {
   const NavigationExperienceV3Page({super.key});
@@ -37,15 +40,24 @@ class _NavigationExperienceV3PageState
   final _osm = OsmDataService();
   final _awareness = RouteAwarenessService();
   final _routePois = RoutePoiService();
+  final _reports = ReportService();
 
   StreamSubscription<dynamic>? _positionSubscription;
   Timer? _sessionTimer;
   DateTime? _lastRoadRefresh;
+  DateTime? _lastReportRefresh;
   DateTime? _lastRerouteAt;
+  DateTime? _lastReportVoiceAt;
   LatLng? _lastCurrent;
   bool _voiceMuted = false;
   String? _lastSessionKey;
   final Set<String> _spokenStages = <String>{};
+  final Set<String> _spokenReports = <String>{};
+  final Set<String> _dismissedReports = <String>{};
+  List<RoadReport> _nearbyReports = const [];
+  ReportCorridorIndex? _reportCorridor;
+  RouteResult? _indexedRoute;
+  ReportAhead? _activeReportAhead;
 
   @override
   void initState() {
@@ -69,6 +81,11 @@ class _NavigationExperienceV3PageState
       final speed = position.speed.isFinite && position.speed > 0
           ? position.speed * 3.6
           : 0.0;
+      final heading =
+          position.heading.isFinite && position.heading >= 0
+              ? position.heading
+              : _controller.state.heading;
+      _controller.setPosition(current, heading);
       _controller.setSpeed(speed);
       unawaited(_updateNavigation(current));
       unawaited(_refreshRoadContext(current));
@@ -82,6 +99,7 @@ class _NavigationExperienceV3PageState
       if (_controller.state.session != null) {
         _lastSessionKey = null;
         _spokenStages.clear();
+        _resetCommunityState();
         _controller.clearSession();
       }
       return;
@@ -94,6 +112,7 @@ class _NavigationExperienceV3PageState
 
     _lastSessionKey = key;
     _spokenStages.clear();
+    _resetCommunityState();
     _controller.setSession(session);
 
     final permission = await _location.currentPermission();
@@ -173,6 +192,8 @@ class _NavigationExperienceV3PageState
 
     _controller.setProgress(progress);
     await _speakIfNeeded(route, progress, index);
+    _evaluateReportAlert(current);
+    unawaited(_refreshCommunityReports(current, route));
     unawaited(_maybeReroute(current, progress));
   }
 
@@ -267,11 +288,182 @@ class _NavigationExperienceV3PageState
     }
   }
 
+  Future<void> _refreshCommunityReports(
+    LatLng current,
+    RouteResult? route,
+  ) async {
+    final now = DateTime.now();
+    if (_lastReportRefresh != null &&
+        now.difference(_lastReportRefresh!) < const Duration(seconds: 30)) {
+      if (route != null && !identical(route, _indexedRoute) && mounted) {
+        setState(() => _rebuildReportCorridor(route));
+      }
+      return;
+    }
+    _lastReportRefresh = now;
+
+    if (_reports.isConfigured) {
+      unawaited(_reports.syncPending());
+    }
+
+    try {
+      final items = await _reports.nearby(current);
+      final ownIds = await _reports.localReportIds();
+      if (!mounted) return;
+      _dismissedReports.addAll(ownIds);
+      setState(() {
+        _nearbyReports = items;
+        _rebuildReportCorridor(route ?? _controller.state.route);
+      });
+      _evaluateReportAlert(current);
+    } catch (_) {
+      // Keep the last known community reports when the server is unreachable.
+    }
+  }
+
+  void _rebuildReportCorridor(RouteResult? route) {
+    _indexedRoute = route;
+    if (route == null || route.points.length < 2) {
+      _reportCorridor = null;
+      _activeReportAhead = null;
+      return;
+    }
+    _reportCorridor = ReportCorridorIndex.build(
+      route: route.points,
+      reports: _nearbyReports,
+    );
+  }
+
+  void _evaluateReportAlert(LatLng current) {
+    if (!mounted) return;
+    final corridor = _reportCorridor;
+    final previous = _activeReportAhead;
+    final matches = corridor == null || corridor.matches.isEmpty
+        ? const <ReportAhead>[]
+        : corridor.aheadOf(
+            current,
+            excludedIds: _dismissedReports,
+            limit: 1,
+          );
+    final next = matches.isEmpty ? null : matches.first;
+
+    final unchanged = next == null
+        ? previous == null
+        : previous != null &&
+            previous.report.id == next.report.id &&
+            (previous.distanceAheadMeters - next.distanceAheadMeters).abs() <
+                25;
+    if (unchanged) return;
+
+    setState(() => _activeReportAhead = next);
+    if (next != null) unawaited(_announceReport(next));
+  }
+
+  Future<void> _announceReport(ReportAhead ahead) async {
+    if (_voiceMuted || ahead.distanceAheadMeters > 700) return;
+    if (_spokenReports.contains(ahead.report.id)) return;
+
+    final nextManeuver = _controller.state.progress?.distanceToNextManeuverMeters;
+    if (nextManeuver != null && nextManeuver < 220) return;
+
+    final now = DateTime.now();
+    if (_lastReportVoiceAt != null &&
+        now.difference(_lastReportVoiceAt!) < const Duration(seconds: 10)) {
+      return;
+    }
+    if (!_spokenReports.add(ahead.report.id)) return;
+    _lastReportVoiceAt = now;
+
+    final distance = reportDistanceLabel(ahead.distanceAheadMeters);
+    await _voice.speak(
+      'در $distance جلوتر، ${ahead.report.type.label} گزارش شده است',
+    );
+  }
+
+  Future<void> _quickReport() async {
+    final point = _lastCurrent ?? _controller.state.currentPosition;
+    if (point == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('موقعیت فعلی مشخص نیست.')),
+      );
+      return;
+    }
+
+    final type = await showQuickReportSheet(
+      context,
+      position: point,
+      configured: _reports.isConfigured,
+    );
+    if (type == null || !mounted) return;
+
+    final result = await _reports.submit(type: type, position: point);
+    if (!mounted) return;
+    if (result.reportId != null) {
+      _dismissedReports.add(result.reportId!);
+    }
+    _controller.bumpReportsRevision();
+    _lastReportRefresh = null;
+    unawaited(
+      _refreshCommunityReports(point, _controller.state.route),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.sent
+              ? '${type.label} برای رانندگان دیگر ارسال شد.'
+              : result.queued
+                  ? '${type.label} ذخیره شد و پس از اتصال اینترنت ارسال می‌شود.'
+                  : '${type.label} روی دستگاه ذخیره شد؛ ارسال به سرور انجام نشد.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _voteReport({required bool confirm}) async {
+    final report = _activeReportAhead?.report;
+    if (report == null) return;
+
+    final result = confirm
+        ? await _reports.confirm(report.id)
+        : await _reports.deny(report.id);
+    if (!mounted) return;
+
+    setState(() {
+      _dismissedReports.add(report.id);
+      _activeReportAhead = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.sent
+              ? (confirm ? 'تأیید شما ثبت شد.' : 'گزارش به‌عنوان رفع‌شده ثبت شد.')
+              : result.queued
+                  ? 'نظر شما ذخیره شد و بعداً ارسال می‌شود.'
+                  : 'ثبت رأی انجام نشد.',
+        ),
+      ),
+    );
+  }
+
+  void _resetCommunityState() {
+    _lastReportRefresh = null;
+    _lastReportVoiceAt = null;
+    _spokenReports.clear();
+    _dismissedReports.clear();
+    _nearbyReports = const [];
+    _reportCorridor = null;
+    _indexedRoute = null;
+    _activeReportAhead = null;
+  }
+
   Future<void> _handleArrival() async {
     if (_controller.state.arrived) return;
     _controller.setArrived();
+    _resetCommunityState();
     await _voice.announceArrival();
     await _session.clear();
+    _lastSessionKey = null;
+    _spokenStages.clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('به مقصد رسیدید')),
@@ -336,6 +528,7 @@ class _NavigationExperienceV3PageState
     await _session.clear();
     _lastSessionKey = null;
     _spokenStages.clear();
+    _resetCommunityState();
     _controller.clearSession();
   }
 
@@ -359,7 +552,10 @@ class _NavigationExperienceV3PageState
 
           return Stack(
             children: [
-              const MapPage(showNavigationChrome: false),
+              MapPage(
+                showNavigationChrome: false,
+                controller: _controller,
+              ),
               if (active)
                 Positioned(
                   top: MediaQuery.paddingOf(context).top + 6,
@@ -372,7 +568,12 @@ class _NavigationExperienceV3PageState
               if (active && offRoute >= 45)
                 Positioned(
                   left: 18,
-                  bottom: MediaQuery.paddingOf(context).bottom + 136,
+                  bottom: MediaQuery.paddingOf(context).bottom +
+                      _driverBarHeight(
+                        alerts: state.alerts.isNotEmpty,
+                        reportAhead: _activeReportAhead != null,
+                      ) +
+                      10,
                   child: FilledButton.icon(
                     onPressed: state.rerouting ? null : _forceReroute,
                     style: FilledButton.styleFrom(
@@ -416,8 +617,12 @@ class _NavigationExperienceV3PageState
                   child: _DriverBottomBar(
                     state: state,
                     muted: _voiceMuted,
+                    reportAlert: _activeReportAhead,
                     onToggleVoice: _toggleVoice,
                     onStop: _stopDriverNavigation,
+                    onReport: _quickReport,
+                    onConfirmReport: () => _voteReport(confirm: true),
+                    onDenyReport: () => _voteReport(confirm: false),
                     onSearchAlongRoute: state.route == null
                         ? null
                         : () => _openAlongRouteSearch(state.route!),
@@ -647,15 +852,23 @@ class _DriverBottomBar extends StatelessWidget {
   const _DriverBottomBar({
     required this.state,
     required this.muted,
+    required this.reportAlert,
     required this.onToggleVoice,
     required this.onStop,
+    required this.onReport,
+    required this.onConfirmReport,
+    required this.onDenyReport,
     required this.onSearchAlongRoute,
   });
 
   final NavigationViewState state;
   final bool muted;
+  final ReportAhead? reportAlert;
   final VoidCallback onToggleVoice;
   final VoidCallback onStop;
+  final VoidCallback onReport;
+  final VoidCallback onConfirmReport;
+  final VoidCallback onDenyReport;
   final VoidCallback? onSearchAlongRoute;
 
   @override
@@ -685,6 +898,14 @@ class _DriverBottomBar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
+            if (reportAlert != null) ...[
+              const SizedBox(height: 8),
+              _ReportAlertRow(
+                ahead: reportAlert!,
+                onConfirm: onConfirmReport,
+                onDeny: onDenyReport,
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [
@@ -773,17 +994,122 @@ class _DriverBottomBar extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 2),
-            TextButton.icon(
-              onPressed: onStop,
-              icon: const Icon(Icons.close_rounded, size: 18),
-              label: const Text('پایان مسیریابی'),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.error,
-              ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onReport,
+                    icon: const Icon(Icons.add_alert_rounded, size: 19),
+                    label: const Text('گزارش اتفاق'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF8A00),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 44),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: onStop,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('پایان'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReportAlertRow extends StatelessWidget {
+  const _ReportAlertRow({
+    required this.ahead,
+    required this.onConfirm,
+    required this.onDeny,
+  });
+
+  final ReportAhead ahead;
+  final VoidCallback onConfirm;
+  final VoidCallback onDeny;
+
+  static const _accent = Color(0xFFFF8A00);
+
+  @override
+  Widget build(BuildContext context) {
+    final report = ahead.report;
+    return Container(
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: _accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _accent.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: _accent,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              roadReportIcon(report.type),
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${report.type.label} در مسیر',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  '${reportDistanceLabel(ahead.distanceAheadMeters)} جلوتر · '
+                  '${reportAgeLabel(report.createdAt)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.rtl,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onDeny,
+            tooltip: 'رفع شد',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded, size: 20),
+          ),
+          IconButton.filled(
+            onPressed: onConfirm,
+            tooltip: 'هنوز هست',
+            visualDensity: VisualDensity.compact,
+            style: IconButton.styleFrom(
+              backgroundColor: _accent,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.check_rounded, size: 20),
+          ),
+        ],
       ),
     );
   }
@@ -964,6 +1290,14 @@ class _AlongRouteSheetState extends State<_AlongRouteSheet> {
     );
   }
 }
+
+double _driverBarHeight({
+  required bool alerts,
+  required bool reportAhead,
+}) =>
+    140 +
+    (alerts ? 38 : 0) +
+    (reportAhead ? 69 : 0);
 
 String _formatDistance(double? meters) {
   if (meters == null) return 'مسیریابی زنده';

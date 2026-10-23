@@ -29,6 +29,8 @@ import 'package:masir/features/place/presentation/place_details_sheet.dart';
 import 'package:masir/features/map_feedback/presentation/map_feedback_sheet.dart';
 import 'package:masir/features/transit/presentation/transit_nearby_sheet.dart';
 import 'package:masir/features/route/presentation/along_route_poi_sheet.dart';
+import 'package:masir/features/map/presentation/navigation_controller.dart';
+import 'package:masir/features/report/presentation/report_ui.dart';
 
 enum _PickTarget { origin, destination }
 
@@ -36,9 +38,11 @@ class MapPage extends StatefulWidget {
   const MapPage({
     super.key,
     this.showNavigationChrome = true,
+    this.controller,
   });
 
   final bool showNavigationChrome;
+  final NavigationController? controller;
 
   @override
   State<MapPage> createState() => _MapPageState();
@@ -88,6 +92,9 @@ class _MapPageState extends State<MapPage> {
   DateTime? _lastRoadInfoAt;
   String? _offlineMapPath;
   bool _usingOfflineRoute = false;
+  bool _controllerSessionActive = false;
+  bool _mapReady = false;
+  int _reportsRevision = 0;
 
   bool _routingNow = false;
   bool _startingNavigation = false;
@@ -97,16 +104,146 @@ class _MapPageState extends State<MapPage> {
   int _maneuverIndex = 0;
   _PickTarget? _pickTarget;
   StreamSubscription<dynamic>? _positionSubscription;
+  StreamSubscription<NavigationViewState>? _controllerSubscription;
 
   @override
   void initState() {
     super.initState();
+    _listenToController(widget.controller);
     _loadNavigationPreferences();
     _loadOfflineMap();
     _loadReportState();
     _loadTrafficZones();
     _loadMapFeedbackState();
     _restoreNavigationSession();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_locateOnStartup());
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant MapPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _listenToController(widget.controller);
+      _controllerSessionActive = false;
+      _onDriverStateChanged();
+    }
+  }
+
+  void _listenToController(NavigationController? controller) {
+    _controllerSubscription?.cancel();
+    _controllerSubscription = controller?.stream.listen(
+      (_) => _onDriverStateChanged(),
+    );
+  }
+
+  Future<void> _locateOnStartup() async {
+    try {
+      final permission = await _location.currentPermission();
+      if (permission == null || !mounted) return;
+      final position = await _location.currentPosition();
+      if (!mounted) return;
+      final point = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _gpsPoint = point;
+        _origin ??= PlaceResult(
+          title: 'موقعیت فعلی من',
+          subtitle:
+              '${position.latitude.toStringAsFixed(5)}، ${position.longitude.toStringAsFixed(5)}',
+          position: point,
+        );
+      });
+      if (_mapReady) _mapController.move(point, 15.5);
+      unawaited(_refreshReports(point, force: true));
+      unawaited(_refreshLiveTraffic(point, force: true));
+      _checkTrafficZone(point);
+    } catch (_) {
+      // Startup stays passive when location is unavailable; no fake position.
+    }
+  }
+
+  void _onDriverStateChanged() {
+    final controller = widget.controller;
+    if (controller == null) return;
+    final state = controller.state;
+    final active = state.session != null && !state.arrived;
+
+    if (state.reportsRevision != _reportsRevision) {
+      _reportsRevision = state.reportsRevision;
+      final point = state.currentPosition ?? _gpsPoint;
+      if (point != null) {
+        unawaited(_refreshReports(point, force: true));
+      }
+    }
+
+    final route = state.route;
+    if (route != null && !identical(route, _route)) {
+      setState(() {
+        _route = route;
+        _alternatives = [route];
+        _routeIndex = 0;
+        _routeConfirmed = true;
+      });
+    }
+
+    if (active != _controllerSessionActive) {
+      _controllerSessionActive = active;
+      if (active) {
+        _positionSubscription?.cancel();
+        _positionSubscription = null;
+        setState(() {
+          _liveNavigation = true;
+          _simulation = false;
+        });
+      } else {
+        setState(() {
+          _liveNavigation = false;
+          _simulation = false;
+          _maneuverIndex = 0;
+        });
+      }
+    }
+
+    final point = state.currentPosition;
+    if (point == null) return;
+    final moved = _gpsPoint == null || _distance(_gpsPoint!, point) >= 2;
+    if (!moved) return;
+
+    setState(() {
+      _gpsPoint = point;
+      if (active) _speedKmh = state.speedKmh;
+    });
+
+    if (!active) {
+      unawaited(_refreshReports(point));
+      _checkTrafficZone(point);
+      return;
+    }
+
+    if (_mapReady) {
+      final heading = state.heading;
+      if (_directionUp &&
+          heading.isFinite &&
+          heading >= 0 &&
+          state.speedKmh > 5.4) {
+        _mapController.rotate(-heading);
+      } else if (!_directionUp) {
+        _mapController.rotate(0);
+      }
+      final speed = state.speedKmh;
+      final zoom = _navPrefs.autoZoom
+          ? (speed >= 80
+              ? 15.4
+              : speed >= 40
+                  ? 16.1
+                  : 17.0)
+          : 17.0;
+      _mapController.move(point, zoom);
+    }
+    unawaited(_refreshReports(point));
+    unawaited(_refreshLiveTraffic(point));
+    _checkTrafficZone(point);
   }
 
   Future<void> _restoreNavigationSession() async {
@@ -234,7 +371,8 @@ class _MapPageState extends State<MapPage> {
         content: Text('وارد ${active.name} شدی$suffix'),
         duration: const Duration(seconds: 5),
       ),
-    );  }
+    );
+  }
 
   Future<void> _loadReportState() async {
     final pending = await _reports.pendingCount();
@@ -243,7 +381,6 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _refreshReports(LatLng point, {bool force = false}) async {
-    if (!_reports.isConfigured) return;
     final now = DateTime.now();
     if (!force &&
         _lastReportRefreshAt != null &&
@@ -253,7 +390,9 @@ class _MapPageState extends State<MapPage> {
     _lastReportRefreshAt = now;
 
     try {
-      await _reports.syncPending();
+      if (_reports.isConfigured) {
+        await _reports.syncPending();
+      }
       final reports = await _reports.nearby(point);
       final pending = await _reports.pendingCount();
       if (!mounted) return;
@@ -268,6 +407,7 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    _controllerSubscription?.cancel();
     _positionSubscription?.cancel();
     _voice.stop();
     super.dispose();
@@ -540,6 +680,13 @@ class _MapPageState extends State<MapPage> {
         viaPoints: _viaPoints,
         mode: _navPrefs.mode,
       );
+
+      if (widget.controller != null) {
+        unawaited(_refreshReports(current, force: true));
+        unawaited(_refreshLiveTraffic(current, force: true));
+        return;
+      }
+
       if (_voiceEnabled && liveRoute.maneuvers.isNotEmpty) {
         unawaited(_voice.speak(_persian.instruction(liveRoute.maneuvers.first)));
       }
@@ -1263,7 +1410,7 @@ class _MapPageState extends State<MapPage> {
                 title: const Text('محدوده‌های ترافیکی'),
                 subtitle: Text(
                   _trafficZones.isNotEmpty
-                      ? '\${_trafficZones.length} محدوده واقعی بارگذاری شده'
+                      ? '${_trafficZones.length} محدوده واقعی بارگذاری شده'
                       : (_trafficZoneService.isConfigured
                           ? 'در منبع فعلی محدوده‌ای دریافت نشد'
                           : 'فقط با منبع GeoJSON واقعی فعال می‌شود'),
@@ -1280,7 +1427,7 @@ class _MapPageState extends State<MapPage> {
                 title: const Text('اصلاح نقشه'),
                 subtitle: Text(
                   _pendingMapFeedback > 0
-                      ? '\${_pendingMapFeedback} پیشنهاد در صف ارسال'
+                      ? '$_pendingMapFeedback پیشنهاد در صف ارسال'
                       : 'نام، مکان، مسیر بسته یا محدودیت دسترسی اشتباه',
                 ),
                 onTap: () {
@@ -1391,7 +1538,7 @@ class _MapPageState extends State<MapPage> {
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _showReportSheet();
+                  _showQuickReport();
                 },
               ),
             ],
@@ -1401,7 +1548,7 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  void _showReportSheet() {
+  void _showQuickReport() {
     final point = _gpsPoint ?? _origin?.position;
     if (point == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1411,67 +1558,62 @@ class _MapPageState extends State<MapPage> {
       );
       return;
     }
+    unawaited(_submitQuickReport(point));
+  }
 
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          children: [
-            const ListTile(
-              title: Text(
-                'گزارش اتفاق مسیر',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: Text(
-                'فقط اتفاقی را گزارش کن که همین حالا در این موقعیت وجود دارد.',
-              ),
-            ),
-            for (final type in RoadReportType.values)
-              ListTile(
-                leading: Icon(_roadReportIcon(type)),
-                title: Text(type.label),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final result = await _reports.submit(
-                    type: type,
-                    position: point,
-                  );
-                  final pending = await _reports.pendingCount();
-                  if (!mounted) return;
-                  setState(() => _pendingReportCount = pending);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        result.sent
-                            ? 'گزارش ارسال شد.'
-                            : 'گزارش ذخیره شد و پس از اتصال سرور واقعی ارسال می‌شود.',
-                      ),
-                    ),
-                  );
-                  if (result.sent) {
-                    unawaited(_refreshReports(point, force: true));
-                  }
-                },
-              ),
-          ],
+  Future<void> _submitQuickReport(LatLng point) async {
+    final type = await showQuickReportSheet(
+      context,
+      position: point,
+      configured: _reports.isConfigured,
+    );
+    if (type == null || !mounted) return;
+
+    final result = await _reports.submit(type: type, position: point);
+    final pending = await _reports.pendingCount();
+    if (!mounted) return;
+    setState(() => _pendingReportCount = pending);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.sent
+              ? 'گزارش ثبت شد.'
+              : result.queued
+                  ? 'گزارش ذخیره شد و پس از اتصال سرور ارسال می‌شود.'
+                  : 'گزارش روی دستگاه ذخیره شد؛ ارسال به سرور انجام نشد.',
         ),
       ),
     );
+    unawaited(_refreshReports(point, force: true));
   }
 
-  IconData _roadReportIcon(RoadReportType type) => switch (type) {
-        RoadReportType.traffic => Icons.traffic_rounded,
-        RoadReportType.accident => Icons.car_crash_outlined,
-        RoadReportType.police => Icons.local_police_outlined,
-        RoadReportType.camera => Icons.videocam_outlined,
-        RoadReportType.speedBump => Icons.speed_rounded,
-        RoadReportType.closure => Icons.block_rounded,
-        RoadReportType.roadwork => Icons.construction_rounded,
-        RoadReportType.hazard => Icons.warning_amber_rounded,
-      };
+  Future<void> _showReportDetails(RoadReport report) async {
+    final outcome = await showReportDetailsSheet(
+      context,
+      report: report,
+      service: _reports,
+    );
+    if (outcome == null || !mounted) return;
+
+    if (!outcome.confirm) {
+      setState(() {
+        _roadReports =
+            _roadReports.where((item) => item.id != report.id).toList();
+      });
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome.result.sent
+              ? (outcome.confirm ? 'تأیید شما ثبت شد.' : 'گزارش رفع‌شده علامت خورد.')
+              : outcome.result.queued
+                  ? 'ثبت شد و با اتصال سرور ارسال می‌شود.'
+                  : 'ثبت رأی انجام نشد.',
+        ),
+      ),
+    );
+    unawaited(_refreshReports(report.position, force: true));
+  }
 
   void _stopNavigation() {
     _positionSubscription?.cancel();
@@ -1507,6 +1649,7 @@ class _MapPageState extends State<MapPage> {
             options: MapOptions(
               initialCenter: const LatLng(20, 0),
               initialZoom: 2.5,
+              onMapReady: () => _mapReady = true,
               onLongPress: (_, point) => _setMapPoint(point),
               onTap: (_, point) => _selectRouteFromMap(point),
             ),
@@ -1605,13 +1748,17 @@ class _MapPageState extends State<MapPage> {
                   for (final report in _roadReports)
                     Marker(
                       point: report.position,
-                      width: 40,
-                      height: 40,
-                      child: Tooltip(
-                        message: report.type.label,
-                        child: _RoadReportMarker(
-                          icon: _roadReportIcon(report.type),
-                          verified: report.verified,
+                      width: 44,
+                      height: 44,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _showReportDetails(report),
+                        child: Tooltip(
+                          message: report.type.label,
+                          child: _RoadReportMarker(
+                            icon: roadReportIcon(report.type),
+                            verified: report.verified,
+                          ),
                         ),
                       ),
                     ),
@@ -1776,10 +1923,23 @@ class _MapPageState extends State<MapPage> {
             Positioned(
               right: 12,
               bottom: _origin != null && _destination != null ? 210 : 20,
-              child: FloatingActionButton.small(
-                heroTag: 'tools',
-                onPressed: _showToolsSheet,
-                child: const Icon(Icons.tune_rounded),
+              child: Column(
+                children: [
+                  FloatingActionButton(
+                    heroTag: 'quickReport',
+                    tooltip: 'گزارش اتفاق',
+                    backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                    foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                    onPressed: _showQuickReport,
+                    child: const Icon(Icons.report_gmailerrorred_rounded),
+                  ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'tools',
+                    onPressed: _showToolsSheet,
+                    child: const Icon(Icons.tune_rounded),
+                  ),
+                ],
               ),
             ),
           if (widget.showNavigationChrome && _liveNavigation)
