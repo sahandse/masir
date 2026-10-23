@@ -3,6 +3,9 @@
 .pub-cache/
 .pub/
 build/
+.flutter-plugins
+.flutter-plugins-dependencies
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 *.iml
 .idea/
 .vscode/
