@@ -94,6 +94,10 @@ Secrets موردنیاز:
 
 بدون این Secrets، Release متوقف می‌شود تا APK با کلید موقت منتشر نشود.
 
+### APK بدون Keystore
+
+برای زمانی که Secrets امضا تنظیم نشده، workflow **Debug-Signed APK Release** (از تب Actions، با `workflow_dispatch`) همان Build را با امضای پیش‌فرض Flutter می‌سازد و APK را به‌عنوان Pre-release منتشر می‌کند. این فایل قابل نصب است ولی با نسخه‌های امضاشدهٔ قبلی قابل ارتقای مستقیم نیست. ورودی اختیاری `report_api_base_url` همان `REPORT_API_BASE_URL` را در Build قرار می‌دهد.
+
 ## اجرا
 
 ```bash
